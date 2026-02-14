@@ -1,0 +1,25 @@
+# General
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Node.js
+node_modules/
+dist/
+.next/
+coverage/
+
+# Docker
+.docker/
+
+# Front-end legacy
+legacy_frontend/node_modules/
+legacy_frontend/dist/

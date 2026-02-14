@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  # --- INFRASTRUCTURE ---
+  
+  postgres:
+    image: postgres:15-alpine
+    container_name: titan_postgres
+    environment:
+      POSTGRES_USER: titan_user
+      POSTGRES_PASSWORD: titan_password
+      POSTGRES_DB: titan_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./storage/schema:/docker-entrypoint-initdb.d
+    networks:
+      - titan_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U titan_user -d titan_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  questdb:
+    image: questdb/questdb:latest
+    container_name: titan_questdb
+    ports:
+      - "9000:9000"   # REST API
+      - "9009:9009"   # InfluxDB Line Protocol
+      - "8812:8812"   # PG Wire Protocol
+    volumes:
+      - questdb_data:/root/.questdb/db
+    networks:
+      - titan_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: titan_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - titan_net
+
+  # --- MICROSERVICES ---
+
+  gateway:
+    build: 
+      context: ./services/gateway
+      dockerfile: Dockerfile
+    container_name: titan_gateway
+    environment:
+      - POSTGRES_HOST=postgres
+      - QUESTDB_HOST=questdb
+      - REDIS_HOST=redis
+      - ALPACA_API_KEY=${ALPACA_API_KEY}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      questdb:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - titan_net
+    restart: unless-stopped
+
+  risk:
+    build:
+      context: ./services/risk
+      dockerfile: Dockerfile
+    container_name: titan_risk
+    environment:
+      - REDIS_HOST=redis
+      - RISK_MAX_DAILY_LOSS=0.03
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - titan_net
+    restart: unless-stopped
+
+  execution:
+    build:
+      context: ./services/execution
+      dockerfile: Dockerfile
+    container_name: titan_execution
+    environment:
+      - ALPACA_API_KEY=${ALPACA_API_KEY}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY}
+      - REDIS_HOST=redis
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - titan_net
+    restart: unless-stopped
+
+  signal:
+    build:
+      context: ./services/signal
+      dockerfile: Dockerfile
+    container_name: titan_signal
+    environment:
+      - REDIS_HOST=redis
+      - QUESTDB_HOST=questdb
+    depends_on:
+      questdb:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - titan_net
+    restart: unless-stopped
+
+networks:
+  titan_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  questdb_data:

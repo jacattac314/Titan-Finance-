@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose an enhancement for TitanFlow
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the user problem first, then the proposed solution.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user or operator pain point does this solve?
+      placeholder: As a ..., I need ... so that ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe expected behavior and implementation direction.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What alternatives did you evaluate?
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact and risks
+      description: Include compatibility, migration, and operational impact.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List objective conditions that define done.
+      placeholder: |
+        - [ ] Condition 1
+        - [ ] Condition 2
