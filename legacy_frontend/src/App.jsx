@@ -47,6 +47,7 @@ function priorityClass(priority) {
 }
 
 export default function App() {
+  const wordmarkSrc = `${import.meta.env.BASE_URL}titan-wordmark.svg`;
   const [range, setRange] = useState("1M");
   const [snapshot, setSnapshot] = useState(null);
   const [series, setSeries] = useState({ managed: [], benchmark: [] });
@@ -125,7 +126,7 @@ export default function App() {
       <div className="ambient" aria-hidden="true" />
       <header className="topbar shell reveal">
         <div className="brand">
-          <img src="/titan-wordmark.svg" alt="Titan Finance" className="wordmark" />
+          <img src={wordmarkSrc} alt="Titan Finance" className="wordmark" />
           <div>
             <p className="eyebrow">{brand.company}</p>
             <h1>{brand.product}</h1>
