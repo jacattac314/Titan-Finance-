@@ -4,11 +4,13 @@ import logging
 import sys
 import torch
 import numpy as np
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from feature_engineering import FeatureEngineer
 from model import load_model
 from explainability import XAIEngine
+from strategies import RSIMeanReversion, SMACrossover
 from db import db
 
 load_dotenv()
@@ -26,7 +28,25 @@ WATCHLIST = ["SPY", "QQQ", "AAPL", "MSFT", "TSLA", "NVDA", "AMD", "AMZN"]
 BUY_THRESHOLD = 0.7
 SELL_THRESHOLD = 0.7
 
-async def process_symbol(symbol: str, fe: FeatureEngineer, model, xai: XAIEngine):
+
+def _format_timestamp(value):
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc).isoformat()
+        return value.isoformat()
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _build_hybrid_signal(probs):
+    buy_prob, _, sell_prob = probs[0], probs[1], probs[2]
+    if buy_prob > BUY_THRESHOLD:
+        return "BUY", float(buy_prob)
+    if sell_prob > SELL_THRESHOLD:
+        return "SELL", float(sell_prob)
+    return None, 0.0
+
+
+async def process_symbol(symbol: str, fe: FeatureEngineer, model, xai: XAIEngine, baseline_strategies):
     """Process a single symbol: Fetch -> Feature -> Model -> Signal."""
     try:
         # 1. Fetch Data (Need window_size + lookback for indicators)
@@ -52,45 +72,58 @@ async def process_symbol(symbol: str, fe: FeatureEngineer, model, xai: XAIEngine
             logits = model(input_tensor) # (1, 3)
             probs = logits.squeeze(0).numpy() # [Buy, Hold, Sell]
             
-        buy_prob, hold_prob, sell_prob = probs[0], probs[1], probs[2]
-        
-        signal = None
-        confidence = 0.0
-        
-        if buy_prob > BUY_THRESHOLD:
-            signal = "BUY"
-            confidence = float(buy_prob)
-        elif sell_prob > SELL_THRESHOLD:
-            signal = "SELL"
-            confidence = float(sell_prob)
-            
-        if signal:
-            logger.info(f"SIGNAL DETECTED: {symbol} {signal} ({confidence:.2f})")
-            
-            # 4. Explainability
+        latest_price = float(raw_data[-1]["close"])
+        timestamp = _format_timestamp(raw_data[-1].get("timestamp"))
+
+        # 4. Multi-model signal generation
+        signals_to_publish = []
+
+        hybrid_signal, hybrid_confidence = _build_hybrid_signal(probs)
+        if hybrid_signal:
             explanation = []
             if xai:
                 try:
                     shap_values = xai.explain_prediction(input_tensor)
-                    # Class index: 0=Buy, 1=Hold, 2=Sell (Depends on training mapping, assuming this for now)
-                    target_class = 0 if signal == "BUY" else 2
-                    
-                    # Feature names from DF columns (need to expose this from fe)
-                    # For now, using generic names or reconstructing
+                    target_class = 0 if hybrid_signal == "BUY" else 2
                     feat_names = ['log_ret', 'rsi', 'atr', 'MACD', 'MACDh', 'MACDs', 'BBU', 'BBL']
-                    
                     explanation = xai.get_top_features(shap_values, feat_names, class_idx=target_class)
                 except Exception as e:
                     logger.warning(f"XAI failed: {e}")
-            
-            # 5. Publish
-            payload = {
+
+            signals_to_publish.append({
                 "symbol": symbol,
-                "signal": signal,
-                "confidence": confidence,
+                "signal": hybrid_signal,
+                "confidence": hybrid_confidence,
+                "price": latest_price,
                 "explanation": explanation,
-                "timestamp": raw_data[-1]['timestamp'] # timestamp of last bar
-            }
+                "timestamp": timestamp,
+                "model_id": "hybrid_ai",
+                "model_name": "Hybrid AI"
+            })
+
+        for strategy in baseline_strategies:
+            decision = strategy.generate_signal(raw_data)
+            if not decision:
+                continue
+            signals_to_publish.append({
+                "symbol": symbol,
+                "signal": decision.signal,
+                "confidence": decision.confidence,
+                "price": latest_price,
+                "explanation": decision.explanation,
+                "timestamp": timestamp,
+                "model_id": strategy.model_id,
+                "model_name": strategy.model_name
+            })
+
+        for payload in signals_to_publish:
+            logger.info(
+                "SIGNAL DETECTED: %s %s (%s %.2f)",
+                payload["symbol"],
+                payload["signal"],
+                payload["model_id"],
+                payload["confidence"],
+            )
             await db.publish_signal(payload)
             
     except Exception as e:
@@ -106,6 +139,10 @@ async def main():
     
     # Input dim: 8 (log_ret, rsi, atr, macd*3, bb*2)
     model = load_model(input_dim=8) 
+    baseline_strategies = [
+        SMACrossover(short_window=10, long_window=30),
+        RSIMeanReversion(window=14, oversold=30, overbought=70),
+    ]
     
     # Initialize XAI with dummy background data for now
     # In prod, load a representative dataset
@@ -116,7 +153,7 @@ async def main():
     
     try:
         while True:
-            tasks = [process_symbol(sym, fe, model, xai) for sym in WATCHLIST]
+            tasks = [process_symbol(sym, fe, model, xai, baseline_strategies) for sym in WATCHLIST]
             await asyncio.gather(*tasks)
             
             # Sleep for 1 minute (aligned to next minute ideally)

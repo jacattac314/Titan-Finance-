@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from db import db
-from alpaca import AlpacaAdapter
-
+from db import db
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -54,14 +53,29 @@ async def main():
         logger.error(f"Infrastructure connection failed: {e}")
         return
 
-    # 2. Initialize Adapter
-    adapter = AlpacaAdapter(WATCHLIST, handle_tick)
+    # 2. Initialize Provider
+    provider_type = os.getenv("DATA_PROVIDER", "synthetic").lower()
+    logger.info(f"Initializing Data Provider: {provider_type}")
     
-    # 3. specific Run Loop
     try:
-        await adapter.run()
+        if provider_type == "alpaca":
+            from providers.alpaca_provider import AlpacaDataProvider
+            provider = AlpacaDataProvider({
+                "ALPACA_API_KEY": os.getenv("ALPACA_API_KEY"),
+                "ALPACA_SECRET_KEY": os.getenv("ALPACA_SECRET_KEY")
+            })
+        elif provider_type == "synthetic":
+            from providers.synthetic_provider import SyntheticDataProvider
+            provider = SyntheticDataProvider()
+        else:
+            raise ValueError(f"Unknown DATA_PROVIDER: {provider_type}")
+        
+        # 3. Subscribe to Data Stream
+        await provider.subscribe(WATCHLIST, handle_tick)
+
+        
     except Exception as e:
-        logger.error(f"Adapter runtime error: {e}")
+        logger.error(f"Provider runtime error: {e}")
     finally:
         await db.close()
 

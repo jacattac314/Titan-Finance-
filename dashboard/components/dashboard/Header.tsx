@@ -8,7 +8,7 @@ export default function Header() {
                     <Cpu className="w-5 h-5 text-white" />
                 </div>
                 <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
-                    TitanFlow <span className="text-xs font-mono text-emerald-400 align-top ml-1">LIVE</span>
+                    TitanFlow <span className="text-xs font-mono text-cyan-300 align-top ml-1">PAPER ARENA</span>
                 </h1>
             </div>
 

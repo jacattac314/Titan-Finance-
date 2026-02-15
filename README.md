@@ -12,8 +12,10 @@ TitanFlow currently includes:
 - Real-time market tick ingestion from Alpaca (IEX stream).
 - Tick persistence to QuestDB and Redis fan-out for downstream consumers.
 - AI signal generation using feature engineering + hybrid model inference.
+- Multi-model signal stream (Hybrid AI + baseline SMA crossover + RSI mean-reversion).
 - Risk engine scaffolding with kill-switch logic and position sizing utilities.
-- Execution service scaffolding connected to Alpaca Trading API.
+- Paper-trading arena with fake cash, real market prices, and live model leaderboard.
+- Optional live execution mode connected to Alpaca Trading API.
 - Next.js dashboard with live signal feed support via Socket.IO.
 
 ## Repository Layout
@@ -33,7 +35,7 @@ TitanFlow currently includes:
 | `gateway` | `titan_gateway` | Postgres, QuestDB, Redis | Alpaca market stream | QuestDB `market_data`, Redis `market_data` | Implemented |
 | `signal` | `titan_signal` | QuestDB, Redis | QuestDB bars | Redis `trade_signals` | Implemented |
 | `risk` | `titan_risk` | Redis | Config/env | In-memory decisions only | Partial (Redis I/O TODO) |
-| `execution` | `titan_execution` | Redis | Alpaca account | Broker order API | Partial (Redis subscription TODO) |
+| `execution` | `titan_execution` | Redis | `trade_signals`, `market_data` | `execution_filled`, `paper_portfolio_updates` | Implemented (paper mode default, live optional) |
 | `dashboard` | local process | Redis (optional) | Redis `trade_signals` via server bridge | Browser UI updates | Implemented |
 
 ## Exposed Ports

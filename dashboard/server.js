@@ -62,7 +62,7 @@ app.prepare().then(async () => {
                 await subscriber.connect();
                 console.log(`Connected to Redis at ${REDIS_URL}`);
 
-                // Subscribe to trade signals
+                // Subscribe to trade signals and market data
                 await subscriber.subscribe("trade_signals", (message) => {
                     try {
                         const signal = JSON.parse(message);
@@ -72,8 +72,37 @@ app.prepare().then(async () => {
                         console.error("Failed to parse signal:", e);
                     }
                 });
+
+                await subscriber.subscribe("market_data", (message) => {
+                    try {
+                        const tick = JSON.parse(message);
+                        // Lightweight emit for high frequency
+                        io.emit("price_update", tick);
+                    } catch (e) {
+                        // console.error("Failed to parse tick:", e);
+                    }
+                });
+
+                await subscriber.subscribe("execution_filled", (message) => {
+                    try {
+                        const trade = JSON.parse(message);
+                        console.log("Emitting trade update:", trade.symbol, trade.side);
+                        io.emit("trade_update", trade);
+                    } catch (e) {
+                        console.error("Failed to parse trade:", e);
+                    }
+                });
+
+                await subscriber.subscribe("paper_portfolio_updates", (message) => {
+                    try {
+                        const portfolios = JSON.parse(message);
+                        io.emit("paper_portfolios", portfolios);
+                    } catch (e) {
+                        console.error("Failed to parse paper portfolios:", e);
+                    }
+                });
             } catch (err) {
-                console.warn("⚠️ Failed to connect to Redis. Dashboard running in standalone mode.");
+                console.warn("Failed to connect to Redis. Dashboard running in standalone mode.");
             }
         })();
     });

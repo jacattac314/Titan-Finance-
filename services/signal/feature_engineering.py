@@ -1,5 +1,5 @@
 import pandas as pd
-import pandas_ta as ta
+import ta
 import numpy as np
 import logging
 
@@ -11,34 +11,38 @@ class FeatureEngineer:
 
     def add_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Add technical indicators using pandas-ta.
+        Add technical indicators using 'ta' library.
         Expected columns: 'open', 'high', 'low', 'close', 'volume'
         """
         # Ensure we have enough data
         if len(df) < self.window_size:
             return df
+            
+
 
         # 1. Log Returns
         df['log_ret'] = np.log(df['close'] / df['close'].shift(1))
 
         # 2. RSI (Relative Strength Index)
-        df['rsi'] = ta.rsi(df['close'], length=14)
+        df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
 
         # 3. MACD (Moving Average Convergence Divergence)
-        macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
-        if macd is not None:
-            df = pd.concat([df, macd], axis=1) # MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
+        macd = ta.trend.MACD(close=df['close'], window_slow=26, window_fast=12, window_sign=9)
+        df['MACD_12_26_9'] = macd.macd()
+        df['MACDh_12_26_9'] = macd.macd_diff()
+        df['MACDs_12_26_9'] = macd.macd_signal()
 
         # 4. Bollinger Bands
-        bbands = ta.bbands(df['close'], length=20, std=2)
-        if bbands is not None:
-            df = pd.concat([df, bbands], axis=1) # BBL_20_2.0, BBM_20_2.0, BBU_20_2.0
+        bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
+        df['BBU_20_2.0'] = bb.bollinger_hband()
+        df['BBL_20_2.0'] = bb.bollinger_lband()
+        df['BBM_20_2.0'] = bb.bollinger_mavg()
 
         # 5. ATR (Average True Range) - Volatility
-        df['atr'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        df['atr'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14).average_true_range()
 
-        # 6. Volume Osc (Simple)
-        df['vol_oma'] = ta.sma(df['volume'], length=10)
+        # 6. Volume Osc (Simple SMA on Volume)
+        df['vol_oma'] = ta.trend.SMAIndicator(close=df['volume'], window=10).sma_indicator()
 
         # Handle NaNs created by indicators
         df.dropna(inplace=True)
