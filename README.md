@@ -149,6 +149,7 @@ For local test guidance, see `docs/TESTING.md`.
 ## Documentation Index
 
 - System design: `docs/ARCHITECTURE.md`
+- Implementation roadmap: `ROADMAP.md`
 - Environment variables: `docs/ENVIRONMENT.md`
 - Operations and troubleshooting: `docs/OPERATIONS.md`
 - Test strategy and commands: `docs/TESTING.md`
