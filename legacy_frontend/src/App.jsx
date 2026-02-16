@@ -144,14 +144,14 @@ export default function App() {
         <section className="hero reveal">
           <div>
             <p className="eyebrow">{brand.slogan}</p>
-            <h2>Institutional-grade portfolio intelligence for decisions that cannot wait.</h2>
+            <h2>Private-office precision, dressed in London restraint.</h2>
             <p>
-              A modern demo frontend with motion, responsive design, and mock API powered updates.
-              Use this to showcase product vision to investors, executives, or potential clients.
+              A polished prototype built for premium presentations: refined motion, measured typography,
+              and executive-grade financial storytelling.
             </p>
             <div className="hero-actions">
-              <button type="button">Launch Live View</button>
-              <button type="button" className="ghost">Schedule Briefing</button>
+              <button type="button">Enter Command Suite</button>
+              <button type="button" className="ghost">Request Private Demo</button>
             </div>
             <small className="last-updated">
               Last refresh: {lastUpdated ? lastUpdated.toLocaleTimeString("en-US") : "syncing..."}

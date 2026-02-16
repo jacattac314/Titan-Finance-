@@ -1,17 +1,17 @@
 export const brand = {
   company: "Titan Finance",
-  product: "Executive Command Center",
-  slogan: "Strategic Wealth Intelligence",
+  product: "Mayfair Command Suite",
+  slogan: "London Luxury Wealth Intelligence",
   palette: {
-    background: "#f3f6fb",
-    text: "#0f2138",
-    muted: "#5c6f8a",
-    panel: "#ffffff",
-    panelAlt: "#edf3fb",
-    border: "#d8e1ef",
-    accent: "#0ea5a3",
-    accentSoft: "#a5e7de",
-    signal: "#f2b16a",
-    good: "#1ea971"
+    background: "#0f1013",
+    text: "#f2eee7",
+    muted: "#b8ad9a",
+    panel: "#17181d",
+    panelAlt: "#111217",
+    border: "#2d2a23",
+    accent: "#d5b07a",
+    accentSoft: "#f0dcc0",
+    signal: "#9a7a58",
+    good: "#87a88a"
   }
 };
