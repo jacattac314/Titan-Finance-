@@ -13,6 +13,9 @@ from dotenv import load_dotenv
 # New Core Imports
 from core.manager import PortfolioManager
 from core.portfolio import VirtualPortfolio
+from risk.validator import OrderValidator
+from simulation.slippage import SlippageModel
+from simulation.latency import LatencySimulator
 
 load_dotenv()
 
@@ -23,9 +26,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("TitanExecutionService")
 
+# Initialize Engines
+validator = OrderValidator()
+slippage_model = SlippageModel()
+latency_sim = LatencySimulator()
+
 # --- Helper Functions for Paper Execution ---
 
-def simulate_fill(signal: Dict, current_price: float, manager: PortfolioManager) -> Optional[Dict]:
+async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioManager) -> Optional[Dict]:
     """
     Simulates a trade execution for paper mode.
     Returns a Fill Event dictionary if successful, None otherwise.
@@ -34,42 +42,44 @@ def simulate_fill(signal: Dict, current_price: float, manager: PortfolioManager)
     side = signal.get("signal")
     symbol = signal.get("symbol")
     # Paper Mode: Use signal price or current market price
-    price = float(signal.get("price") or current_price or 0.0)
+    decision_price = float(signal.get("price") or current_price or 0.0)
     
-    if price <= 0:
+    if decision_price <= 0:
         return None
 
     # Get or Create Portfolio
-    # Note: In a real system, we might require pre-registration. 
-    # Here we auto-create for smoother dev experience.
     portfolio = manager.get_portfolio(model_id)
     if not portfolio:
         portfolio = manager.create_portfolio(model_id)
 
-    # Basic Risk/Budget Check
-    # For MVP, allocate fixed amount or % of cash?
-    # Old logic: budget = min(cash, equity * risk * confidence)
-    # Simplified: Invest $10k per trade or max cash
+    # Determine Quantity (Simple logic for now)
     trade_amount = 10000.0 
-    
     qty = 0
     if side == "BUY":
-        if portfolio.cash < 10.0: # Minimum cash needed
+        if portfolio.cash < 10.0: 
             return None
         actual_amount = min(portfolio.cash, trade_amount)
-        qty = int(actual_amount / price)
-        if qty <= 0:
-            return None
+        qty = int(actual_amount / decision_price)
     elif side == "SELL":
-        # Check current position
         current_pos = portfolio.positions.get(symbol)
         if not current_pos or current_pos['qty'] <= 0:
             return None
-        qty = current_pos['qty'] # Sell all for now (simplify)
+        qty = current_pos['qty'] 
 
     if qty <= 0:
         return None
-        
+
+    # 1. RISK CHECK
+    if not validator.validate(portfolio, symbol, decision_price, qty, side):
+        return None
+
+    # 2. LATENCY SIMULATION
+    await latency_sim.delay()
+
+    # 3. SLIPPAGE CALCULATION
+    executed_price = slippage_model.calculate_price(decision_price, side, qty)
+
+    # 4. EXECUTION
     return {
         "id": str(uuid.uuid4()),
         "order_id": str(uuid.uuid4()),
@@ -77,10 +87,12 @@ def simulate_fill(signal: Dict, current_price: float, manager: PortfolioManager)
         "symbol": symbol,
         "side": side,
         "qty": qty,
-        "price": price,
+        "price": executed_price,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "status": "FILLED",
-        "mode": "paper"
+        "mode": "paper",
+        "slippage": round(executed_price - decision_price, 4),
+        "explanation": signal.get("explanation", [])
     }
 
 async def publish_portfolios(redis_client, manager: PortfolioManager):
@@ -101,7 +113,6 @@ async def publish_portfolios(redis_client, manager: PortfolioManager):
 
 async def run_live_execution(redis_client):
     logger.info("Live execution not yet fully implemented. Creating placeholder.")
-    # ... (Keep existing live logic logic if needed, but for now we focus on Paper)
     pass
 
 async def run_paper_execution(redis_client):
@@ -138,19 +149,6 @@ async def run_paper_execution(redis_client):
                 
                 # Periodically publish portfolio updates
                 if (now - last_publish_at) >= publish_interval:
-                    # Update equity for all portfolios
-                    # Note: strict `calculate_total_equity` might need `current_prices` passing down
-                    # For now `get_all_portfolios` implementation in manager might need adjustment 
-                    # OR we pass prices here.
-                    # Let's patch manager.get_all_portfolios to accept prices? 
-                    # Or just do it here. 
-                    
-                    # Hack: Attach prices to manager instance temporarily or pass to methods
-                    # Let's rely on manager having a way to know prices.
-                    # Actually, let's just make get_all_portfolios do the calc if we pass prices
-                    # We will update manager.get_all_portfolios signature in next step if needed.
-                    # For now, let's assume it works or we fix it.
-                    
                     await publish_portfolios(redis_client, manager)
                     last_publish_at = now
                 
@@ -160,8 +158,8 @@ async def run_paper_execution(redis_client):
                 symbol = payload.get("symbol")
                 price = current_prices.get(symbol, 0.0)
                 
-                # 2. Simulate Execution (Broker Step)
-                fill = simulate_fill(payload, price, manager)
+                # 2. Simulate Execution (Broker Step) with Async Latency
+                fill = await simulate_fill(payload, price, manager)
                 
                 if fill:
                     # 3. Update Portfolio (Legder Step)
@@ -169,7 +167,7 @@ async def run_paper_execution(redis_client):
                     
                     # 4. Publish Fill Event (for Dashboard/Logs)
                     await redis_client.publish("execution_filled", json.dumps(fill))
-                    logger.info(f"Executed Paper Trade: {fill['side']} {fill['qty']} {fill['symbol']} @ {fill['price']}")
+                    logger.info(f"Executed ({fill['slippage']}): {fill['side']} {fill['qty']} {fill['symbol']} @ {fill['price']}")
 
         except Exception as exc:
             logger.error(f"Error in paper execution loop: {exc}")

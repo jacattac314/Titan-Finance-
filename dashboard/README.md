@@ -31,6 +31,10 @@ For local host Redis on Windows PowerShell:
 $env:REDIS_URL="redis://localhost:6379"
 ```
 
+Notes:
+- `npm run dev` now defaults to `redis://localhost:6379`.
+- Production defaults to `redis://redis:6379`.
+
 3. Start development server.
 
 ```bash

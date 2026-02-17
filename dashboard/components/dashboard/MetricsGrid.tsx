@@ -1,51 +1,29 @@
 "use client";
 
 import { TrendingUp, Activity, DollarSign, BarChart3 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import io from 'socket.io-client';
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { LeaderboardRow } from '@/components/dashboard/types';
 
-interface ModelSnapshot {
-    model_id: string;
-    model_name: string;
-    pnl: number;
-    pnl_pct: number;
-    trades: number;
-    win_rate: number;
-    open_positions: number;
+interface MetricsGridProps {
+    rows: LeaderboardRow[];
 }
 
-interface PortfolioUpdate {
-    best_model: string | null;
-    models: ModelSnapshot[];
+function safeNumber(value: unknown, fallback = 0): number {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
 }
 
-export default function MetricsGrid() {
-    const [portfolioUpdate, setPortfolioUpdate] = useState<PortfolioUpdate>({ best_model: null, models: [] });
-
-    useEffect(() => {
-        const socket = io({
-            path: "/api/socket/io",
-            addTrailingSlash: false,
-        });
-
-        socket.on("paper_portfolios", (update: PortfolioUpdate) => {
-            setPortfolioUpdate(update);
-        });
-
-        return () => {
-            socket.disconnect();
-        };
-    }, []);
-
+export default function MetricsGrid({ rows }: MetricsGridProps) {
     const metrics = useMemo(() => {
-        const models = portfolioUpdate.models || [];
-        const totalPnl = models.reduce((sum, model) => sum + model.pnl, 0);
-        const totalTrades = models.reduce((sum, model) => sum + model.trades, 0);
+        const models = rows || [];
+        const totalPnl = models.reduce((sum, model) => sum + safeNumber(model.pnl), 0);
+        const totalTrades = models.reduce((sum, model) => sum + safeNumber(model.trades), 0);
         const avgWinRate = models.length
-            ? models.reduce((sum, model) => sum + model.win_rate, 0) / models.length
+            ? models.reduce((sum, model) => sum + safeNumber(model.win_rate), 0) / models.length
             : 0;
         const bestModel = models.length ? models[0] : null;
+        const bestModelPnlPct = safeNumber(bestModel?.pnl_pct);
 
         return [
             {
@@ -58,7 +36,7 @@ export default function MetricsGrid() {
             {
                 label: 'Best Model',
                 value: bestModel ? bestModel.model_name : 'Waiting',
-                change: bestModel ? `${bestModel.pnl_pct >= 0 ? '+' : ''}${bestModel.pnl_pct.toFixed(2)}%` : '--',
+                change: bestModel ? `${bestModelPnlPct >= 0 ? '+' : ''}${bestModelPnlPct.toFixed(2)}%` : '--',
                 icon: Activity,
                 color: 'text-blue-400'
             },
@@ -72,12 +50,12 @@ export default function MetricsGrid() {
             {
                 label: 'Active Models',
                 value: `${models.length}`,
-                change: `${models.reduce((sum, model) => sum + model.open_positions, 0)} open positions`,
+                change: `${models.reduce((sum, model) => sum + safeNumber(model.open_positions), 0)} open positions`,
                 icon: BarChart3,
                 color: 'text-cyan-400'
             },
         ];
-    }, [portfolioUpdate]);
+    }, [rows]);
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -8,7 +8,52 @@ const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-const REDIS_URL = process.env.REDIS_URL || "redis://redis:6379";
+const defaultRedisUrl = dev ? "redis://localhost:6379" : "redis://redis:6379";
+const EXECUTION_MODE = process.env.EXECUTION_MODE || "paper";
+
+function buildRedisCandidates() {
+    const candidates = [];
+    if (process.env.REDIS_URL) {
+        candidates.push(process.env.REDIS_URL);
+    }
+    candidates.push(defaultRedisUrl);
+    candidates.push(dev ? "redis://redis:6379" : "redis://localhost:6379");
+    return [...new Set(candidates)];
+}
+
+async function connectRedisWithFallback() {
+    const candidates = buildRedisCandidates();
+
+    for (const url of candidates) {
+        const client = createClient({
+            url,
+            socket: {
+                connectTimeout: 3000,
+                reconnectStrategy: (retries) => {
+                    if (retries > 5) {
+                        console.warn("Redis: Max retries reached. Stopping reconnection attempts.");
+                        return new Error("Max retries reached");
+                    }
+                    return Math.min(retries * 50, 2000);
+                },
+            },
+        });
+
+        try {
+            await client.connect();
+            return { client, url };
+        } catch (err) {
+            console.warn(`Redis unavailable at ${url}: ${err.message}`);
+            try {
+                await client.disconnect();
+            } catch (_) {
+                // no-op
+            }
+        }
+    }
+
+    throw new Error("No Redis candidates were reachable.");
+}
 
 app.prepare().then(async () => {
     const server = createServer((req, res) => {
@@ -21,8 +66,32 @@ app.prepare().then(async () => {
         addTrailingSlash: false,
     });
 
+    let redisConnected = false;
+
+    const broadcastStatus = () => {
+        io.emit("server_status", {
+            redisConnected,
+            executionMode: EXECUTION_MODE,
+            serverTime: Date.now(),
+        });
+    };
+
     io.on("connection", (socket) => {
         console.log("Client connected:", socket.id);
+        socket.emit("server_status", {
+            redisConnected,
+            executionMode: EXECUTION_MODE,
+            serverTime: Date.now(),
+        });
+
+        socket.on("latency_ping", (clientSentAt, callback) => {
+            if (typeof callback === "function") {
+                callback({
+                    clientSentAt,
+                    serverSentAt: Date.now(),
+                });
+            }
+        });
 
         socket.on("disconnect", () => {
             console.log("Client disconnected:", socket.id);
@@ -36,31 +105,42 @@ app.prepare().then(async () => {
 
         // Connect to Redis after server starts
         (async () => {
-            const subscriber = createClient({
-                url: REDIS_URL,
-                socket: {
-                    reconnectStrategy: (retries) => {
-                        if (retries > 5) {
-                            console.warn("Redis: Max retries reached. Stopping reconnection attempts.");
-                            return new Error("Max retries reached");
-                        }
-                        return Math.min(retries * 50, 2000);
-                    }
+            let subscriber = null;
+            let connectedRedisUrl = null;
+
+            try {
+                const result = await connectRedisWithFallback();
+                subscriber = result.client;
+                connectedRedisUrl = result.url;
+            } catch (err) {
+                redisConnected = false;
+                broadcastStatus();
+                console.warn("Failed to connect to Redis. Dashboard running in standalone mode.");
+                return;
+            }
+
+            subscriber.on("error", (err) => {
+                redisConnected = false;
+                broadcastStatus();
+                if (err.code !== "ENOTFOUND" && err.code !== "ECONNREFUSED") {
+                    console.error("Redis Client Error:", err.message);
                 }
             });
 
-            subscriber.on('error', (err) => {
-                // Suppress excessive error logs
-                if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
-                    // console.warn('Redis unavailable (running in standalone mode)');
-                } else {
-                    console.error('Redis Client Error:', err.message);
-                }
+            subscriber.on("ready", () => {
+                redisConnected = true;
+                broadcastStatus();
+            });
+
+            subscriber.on("end", () => {
+                redisConnected = false;
+                broadcastStatus();
             });
 
             try {
-                await subscriber.connect();
-                console.log(`Connected to Redis at ${REDIS_URL}`);
+                console.log(`Connected to Redis at ${connectedRedisUrl}`);
+                redisConnected = true;
+                broadcastStatus();
 
                 // Subscribe to trade signals and market data
                 await subscriber.subscribe("trade_signals", (message) => {
@@ -102,7 +182,9 @@ app.prepare().then(async () => {
                     }
                 });
             } catch (err) {
-                console.warn("Failed to connect to Redis. Dashboard running in standalone mode.");
+                redisConnected = false;
+                broadcastStatus();
+                console.warn("Redis subscriptions failed. Dashboard running in standalone mode.");
             }
         })();
     });

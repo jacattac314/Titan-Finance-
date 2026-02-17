@@ -39,8 +39,8 @@ class PortfolioManager:
         portfolio_id = self.order_map.get(order_id)
         
         if not portfolio_id:
-            # Fallback: check if 'strategy_id' is in event
-            portfolio_id = fill_event.get('strategy_id')
+            # Fallback: check if 'strategy_id' or 'model_id' is in event
+            portfolio_id = fill_event.get('strategy_id') or fill_event.get('model_id')
         
         if portfolio_id and portfolio_id in self.portfolios:
             vp = self.portfolios[portfolio_id]
