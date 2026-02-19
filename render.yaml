@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: titanflow-dashboard
+    runtime: docker
+    dockerfilePath: ./dashboard/Dockerfile
+    dockerContext: ./dashboard
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOSTNAME
+        value: "0.0.0.0"
+      - key: REDIS_URL
+        sync: false   # paste your Redis URL in the Render dashboard
