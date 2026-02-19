@@ -1,0 +1,46 @@
+# docker-compose.dashboard.yml
+#
+# Lightweight compose file that starts ONLY the dashboard and a Redis broker.
+# No Python services, no QuestDB, no Postgres needed.
+#
+# Usage:
+#   docker compose -f docker-compose.dashboard.yml up --build
+#
+# Then open http://localhost:3000 (or http://<your-host-ip>:3000 from any machine on the network).
+#
+# The dashboard runs in "standalone" mode: it displays the UI and connects to
+# Redis but receives no live trading data unless the full stack is also running.
+# Useful for demoing the UI, running E2E tests, or front-end development.
+
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: titan_redis_dash
+    ports:
+      - "6379:6379"
+    networks:
+      - dash_net
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: titan_dashboard
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+    networks:
+      - dash_net
+    restart: unless-stopped
+
+networks:
+  dash_net:
+    driver: bridge
