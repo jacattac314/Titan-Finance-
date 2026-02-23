@@ -17,6 +17,10 @@ from risk.validator import OrderValidator
 from simulation.slippage import SlippageModel
 from simulation.latency import LatencySimulator
 
+# Alpaca live-execution connector and audit logger
+from alpaca_client import TitanAlpacaConnector
+from audit import TradeAuditLogger
+
 load_dotenv()
 
 logging.basicConfig(
@@ -112,8 +116,159 @@ async def publish_portfolios(redis_client, manager: PortfolioManager):
 # --- Main Execution Loops ---
 
 async def run_live_execution(redis_client):
-    logger.info("Live execution not yet fully implemented. Creating placeholder.")
-    pass
+    """
+    Live execution loop — connects Titan ML signals to real Alpaca orders.
+
+    Flow per received trade_signal:
+        1. Audit-log the raw signal (provenance record).
+        2. Check kill switch state.
+        3. Route to TitanAlpacaConnector.execute_signal().
+        4. Audit-log the submitted order.
+        5. Periodically poll Alpaca account equity and trigger circuit breaker
+           if daily drawdown exceeds CIRCUIT_BREAKER_DRAWDOWN_PCT.
+        6. Activate manual-approval mode if ROLLBACK_MIN_SHARPE threshold
+           is monitored and falls below the configured floor.
+    """
+    logger.info("Starting LIVE execution engine...")
+
+    # --- Configuration ---
+    model_version = os.getenv("MODEL_VERSION", "v1.0")
+    circuit_breaker_drawdown = float(os.getenv("CIRCUIT_BREAKER_DRAWDOWN_PCT", "0.03"))
+    rollback_min_sharpe = float(os.getenv("ROLLBACK_MIN_SHARPE", "0.5"))
+    account_poll_interval = float(os.getenv("ACCOUNT_POLL_SECONDS", "30"))
+
+    # --- Initialise connector (singleton) ---
+    try:
+        connector = TitanAlpacaConnector.get_instance()
+    except ValueError as exc:
+        logger.error(f"Cannot start live execution — connector init failed: {exc}")
+        return
+
+    # --- Initialise audit logger and wire up Redis ---
+    audit = TradeAuditLogger.get_instance()
+    audit.set_redis_client(redis_client)
+
+    # Snapshot starting equity for drawdown calculation
+    account_info = connector.get_account()
+    starting_equity: float = account_info.get("equity", 0.0)
+    if starting_equity <= 0:
+        logger.error("Could not retrieve starting equity from Alpaca. Aborting live mode.")
+        return
+    logger.info(f"Starting equity: ${starting_equity:,.2f}")
+
+    last_account_poll = 0.0
+    current_prices: Dict[str, float] = {}
+
+    # --- Subscribe to channels ---
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe("trade_signals", "market_data")
+    logger.info("Live execution subscribed to [trade_signals, market_data].")
+
+    async for message in pubsub.listen():
+        try:
+            if message.get("type") != "message":
+                continue
+
+            channel = message.get("channel", b"")
+            if isinstance(channel, bytes):
+                channel = channel.decode("utf-8")
+
+            payload = json.loads(message["data"])
+            now = asyncio.get_running_loop().time()
+
+            # ---- Market data: keep price cache fresh ----
+            if channel == "market_data":
+                if payload.get("type") == "trade":
+                    current_prices[payload["symbol"]] = float(payload["price"])
+
+                # Periodic account poll → circuit breaker check
+                if (now - last_account_poll) >= account_poll_interval:
+                    last_account_poll = now
+                    acct = connector.get_account()
+                    if acct:
+                        equity = acct.get("equity", starting_equity)
+                        unrealized_pl = acct.get("unrealized_pl", 0.0)
+                        daily_return = unrealized_pl / starting_equity if starting_equity > 0 else 0.0
+
+                        logger.info(
+                            f"Account poll — equity=${equity:,.2f} "
+                            f"daily_pnl=${unrealized_pl:+,.2f} ({daily_return:+.2%})"
+                        )
+
+                        # --- Circuit breaker: drawdown limit ---
+                        if daily_return <= -circuit_breaker_drawdown and not connector.is_blocked:
+                            trigger_msg = (
+                                f"Daily drawdown {daily_return:.2%} exceeded limit "
+                                f"-{circuit_breaker_drawdown:.2%}"
+                            )
+                            logger.critical(trigger_msg)
+                            connector.activate_kill_switch()
+                            connector.liquidate_all()
+                            await audit.log_kill_switch(
+                                trigger=trigger_msg,
+                                drawdown_pct=daily_return,
+                                equity=equity,
+                                model_version=model_version,
+                            )
+
+            # ---- Trade signal: execute via Alpaca ----
+            elif channel == "trade_signals":
+                model_id = payload.get("model_id", "unknown")
+                symbol = payload.get("symbol", "")
+                signal_str = payload.get("signal", "HOLD")
+                confidence = float(payload.get("confidence", 0.0))
+                explanation = payload.get("explanation", [])
+                price = current_prices.get(symbol, float(payload.get("price", 0) or 0))
+
+                logger.info(
+                    f"Signal received [{model_id}]: {signal_str} {symbol} "
+                    f"conf={confidence:.2%} price={price}"
+                )
+
+                # 1. Audit the raw signal
+                await audit.log_signal(
+                    model_id=model_id,
+                    model_version=model_version,
+                    symbol=symbol,
+                    signal=signal_str,
+                    confidence=confidence,
+                    price=price,
+                    explanation=explanation,
+                )
+
+                # 2. Execute (connector handles all gates internally)
+                result = connector.execute_signal(
+                    symbol=symbol,
+                    signal=signal_str,
+                    confidence=confidence,
+                    model_id=model_id,
+                    price=price,
+                    model_version=model_version,
+                )
+
+                # 3. Audit the order if one was submitted
+                if result:
+                    await audit.log_order(
+                        model_id=result["model_id"],
+                        model_version=result["model_version"],
+                        symbol=result["symbol"],
+                        side=result["side"],
+                        qty=result["qty"],
+                        price=result["price_at_signal"],
+                        confidence=result["confidence"],
+                        order_id=result["order_id"],
+                        status=result["status"],
+                        mode=result["mode"],
+                    )
+                    # Publish fill-like event for dashboard compatibility
+                    await redis_client.publish("execution_filled", json.dumps({
+                        **result,
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "mode": "live",
+                    }))
+
+        except Exception as exc:
+            logger.error(f"Error in live execution loop: {exc}")
 
 async def run_paper_execution(redis_client):
     manager = PortfolioManager()

@@ -2,12 +2,12 @@ import asyncio
 import json
 import logging
 from typing import List, Callable, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 import websockets
 
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
+from alpaca.data.requests import StockBarsRequest, StockSnapshotRequest
 from alpaca.data.timeframe import TimeFrame
 
 from .base import DataProvider
@@ -70,19 +70,25 @@ class AlpacaDataProvider(DataProvider):
                     data = json.loads(message)
                     for item in data:
                         if item.get("T") == "t": # Trade
-                            # Normalize
+                            # Parse ISO 8601 timestamp → Unix nanoseconds
+                            ts_str = item.get("t", "")
+                            try:
+                                ts_ns = int(
+                                    datetime.fromisoformat(
+                                        ts_str.replace("Z", "+00:00")
+                                    ).timestamp() * 1_000_000_000
+                                )
+                            except Exception:
+                                ts_ns = int(datetime.now(timezone.utc).timestamp() * 1_000_000_000)
+
                             normalized = {
                                 "type": "trade",
                                 "symbol": item.get("S"),
                                 "price": float(item.get("p", 0)),
                                 "size": int(item.get("s", 0)),
-                                "timestamp": int(item.get("t", "0").replace("-", "").replace(":", "").replace("T", "").replace("Z","")) * 1e9 if "t" in item else 0, # Crude parse, mostly for v1
+                                "timestamp": ts_ns,
                                 "provider": "alpaca"
                             }
-                            # Better timestamp parsing if possible:
-                            # from dateutil import parser
-                            # ts = parser.parse(item["t"]).timestamp() * 1e9
-                            
                             await callback(normalized)
                         elif item.get("T") == "error":
                             logger.error(f"Stream error: {item}")
@@ -111,7 +117,8 @@ class AlpacaDataProvider(DataProvider):
         return bars.df
 
     def get_latest_price(self, symbol: str) -> float:
-        snapshot = self.history_client.get_stock_snapshot(symbol)
+        request = StockSnapshotRequest(symbol_or_symbols=symbol)
+        snapshot = self.history_client.get_stock_snapshot(request)
         if snapshot and symbol in snapshot:
-             return snapshot[symbol].latest_trade.price
+            return float(snapshot[symbol].latest_trade.price)
         return 0.0

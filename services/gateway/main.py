@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from db import db
-from db import db
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
