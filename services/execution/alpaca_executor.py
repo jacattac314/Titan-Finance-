@@ -10,11 +10,11 @@ class AlpacaExecutor:
     def __init__(self):
         self.api_key = os.getenv("ALPACA_API_KEY")
         self.secret_key = os.getenv("ALPACA_SECRET_KEY")
-        self.paper = True # Default to paper for safety
-        
+        self.paper = os.getenv("EXECUTION_MODE", "paper").strip().lower() != "live"
+
         if not self.api_key:
             raise ValueError("ALPACA_API_KEY not found")
-            
+
         self.client = TradingClient(self.api_key, self.secret_key, paper=self.paper)
         logger.info(f"Initialized AlpacaExecutor (Paper={self.paper})")
 
