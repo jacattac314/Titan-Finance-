@@ -99,9 +99,9 @@ async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioMa
         "explanation": signal.get("explanation", [])
     }
 
-async def publish_portfolios(redis_client, manager: PortfolioManager):
+async def publish_portfolios(redis_client, manager: PortfolioManager, current_prices: Dict[str, float] = None):
     """Publish leaderboard/portfolio summaries to Redis."""
-    portfolios = manager.get_all_portfolios()
+    portfolios = manager.get_all_portfolios(current_prices)
     # Sort by equity (descending)
     portfolios.sort(key=lambda x: x['equity'], reverse=True)
     
@@ -187,19 +187,20 @@ async def run_live_execution(redis_client):
                     acct = connector.get_account()
                     if acct:
                         equity = acct.get("equity", starting_equity)
-                        unrealized_pl = acct.get("unrealized_pl", 0.0)
-                        daily_return = unrealized_pl / starting_equity if starting_equity > 0 else 0.0
+                        daily_pnl = equity - starting_equity
+                        daily_return = daily_pnl / starting_equity if starting_equity > 0 else 0.0
 
                         logger.info(
                             f"Account poll — equity=${equity:,.2f} "
-                            f"daily_pnl=${unrealized_pl:+,.2f} ({daily_return:+.2%})"
+                            f"daily_pnl=${daily_pnl:+,.2f} ({daily_return:+.2%})"
                         )
 
                         # --- Circuit breaker: drawdown limit ---
                         if daily_return <= -circuit_breaker_drawdown and not connector.is_blocked:
                             trigger_msg = (
                                 f"Daily drawdown {daily_return:.2%} exceeded limit "
-                                f"-{circuit_breaker_drawdown:.2%}"
+                                f"-{circuit_breaker_drawdown:.2%} "
+                                f"(equity ${equity:,.2f} vs start ${starting_equity:,.2f})"
                             )
                             logger.critical(trigger_msg)
                             connector.activate_kill_switch()
@@ -304,7 +305,7 @@ async def run_paper_execution(redis_client):
                 
                 # Periodically publish portfolio updates
                 if (now - last_publish_at) >= publish_interval:
-                    await publish_portfolios(redis_client, manager)
+                    await publish_portfolios(redis_client, manager, current_prices)
                     last_publish_at = now
                 
             elif channel == "trade_signals":
