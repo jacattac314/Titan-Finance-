@@ -1,5 +1,4 @@
 import logging
-import asyncio
 import numpy as np
 import pandas as pd
 import torch
@@ -135,4 +134,5 @@ class LSTMStrategy(Strategy):
         return None
 
     async def on_bar(self, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        return None
+        """Process a completed OHLCV bar by delegating its close price to on_tick."""
+        return await self.on_tick({"price": bar["close"], "timestamp": bar.get("timestamp")})

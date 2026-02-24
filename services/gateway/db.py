@@ -1,7 +1,6 @@
 import sys
 import logging
 import os
-import asyncio
 import asyncpg
 import socket
 import redis.asyncio as redis

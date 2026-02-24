@@ -75,87 +75,65 @@ class LightGBMStrategy(Strategy):
         logger.info("LightGBM Model Trained & Explainer Initialized.")
 
     async def on_tick(self, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        # Accumulate tick data into bars? 
-        # For simplicity in MVP, let's treat ticks as "close" updates 
-        # OR we need a real Bar Aggregator. 
-        # Let's assume the Gateway sends 'bar' events or we just use 'price' to append to a list
-        # and treat every 10 ticks as a "bar" or just run on every tick with historical context.
-        
-        # Strict ML requires OHLCV bars.
-        # If we only get ticks, we can't easily compute ATR/High/Low properly without aggregation.
-        # Check if we receive 'bar' events? 
-        # The Synthetic provider sends 'trade' events.
-        # Let's simple-hack: aggregate ticks into 1-minute bars in memory?
-        # Or just append price as close/high/low/open for that timestamp.
-        
         price = float(tick.get("price", 0.0))
-        if price <= 0: return None
-        
-        # Quick hack: Append to deque as a "bar"
-        # In real world, we'd use on_bar.
-        # Here we simulate a bar by treating the single tick as OHLC (all same)
+        if price <= 0:
+            return None
+        # Treat single tick as a flat OHLCV bar (tick-level simulation)
         self.bars.append({
             'open': price, 'high': price, 'low': price, 'close': price, 'volume': 100
         })
-        
+        return self._infer(price=price, timestamp=tick.get("timestamp"))
+
+    async def on_bar(self, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Process a completed OHLCV bar from the Gateway."""
+        self.bars.append({
+            'open': float(bar.get('open', 0.0)),
+            'high': float(bar.get('high', 0.0)),
+            'low': float(bar.get('low', 0.0)),
+            'close': float(bar.get('close', 0.0)),
+            'volume': float(bar.get('volume', 100)),
+        })
+        return self._infer(price=float(bar.get('close', 0.0)), timestamp=bar.get("timestamp"))
+
+    def _infer(self, price: float, timestamp) -> Optional[Dict[str, Any]]:
+        """Run LightGBM inference on the current bar buffer."""
         if len(self.bars) < self.min_bars:
             return None
-            
-        # Convert to DF
+
         df = pd.DataFrame(list(self.bars))
-        
-        # Calc Features
         features_df = self.fe.calculate_features(df)
         if features_df.empty:
             return None
-            
-        # Get last row for inference
-        last_row = features_df.iloc[[-1]] 
-        
-        # Predict
-        prob = self.model.predict(last_row)[0] # Probability of Class 1 (UP)
-        
+
+        last_row = features_df.iloc[[-1]]
+        prob = self.model.predict(last_row)[0]
+
         signal = None
         if prob > self.confidence_threshold:
             signal = "BUY"
         elif prob < (1 - self.confidence_threshold):
             signal = "SELL"
-            
-        if signal:
-            # Explain
-            shap_values = self.explainer.shap_values(last_row)
-            # shap_values is list of arrays for binary? or array?
-            # For binary, it might be array.
-            # Shap 0.40+ returns Explanation object or values. TreeExplainer usually returns matrix.
-            
-            # Simple top feature extraction
-            # shap_values[1] is usually positive class contribution
-            if isinstance(shap_values, list):
-                vals = shap_values[1][0]
-            else:
-                vals = shap_values[0]
-                
-            # Get top 3 features
-            feature_names = last_row.columns.tolist()
-            # Sort by absolute impact
-            top_indices = np.argsort(np.abs(vals))[-3:][::-1]
-            explanation = [
-                f"{feature_names[i]}: {vals[i]:.4f}" for i in top_indices
-            ]
-            
-            return {
-                "model_id": self.model_id,
-                "model_name": "LightGBM_v1",
-                "symbol": self.symbol,
-                "signal": signal,
-                "confidence": round(float(prob if signal == "BUY" else 1-prob), 2),
-                "price": price,
-                "timestamp": tick.get("timestamp"),
-                "explanation": explanation
-            }
-            
-        return None
 
-    async def on_bar(self, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        # To be implemented when Gateway sends real bars
-        pass
+        if not signal:
+            return None
+
+        shap_values = self.explainer.shap_values(last_row)
+        if isinstance(shap_values, list):
+            vals = shap_values[1][0]
+        else:
+            vals = shap_values[0]
+
+        feature_names = last_row.columns.tolist()
+        top_indices = np.argsort(np.abs(vals))[-3:][::-1]
+        explanation = [f"{feature_names[i]}: {vals[i]:.4f}" for i in top_indices]
+
+        return {
+            "model_id": self.model_id,
+            "model_name": "LightGBM_v1",
+            "symbol": self.symbol,
+            "signal": signal,
+            "confidence": round(float(prob if signal == "BUY" else 1 - prob), 2),
+            "price": price,
+            "timestamp": timestamp,
+            "explanation": explanation
+        }

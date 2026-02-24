@@ -6,6 +6,8 @@ import sys
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
+from db import db
+
 # Strategies
 from strategies.sma_crossover import SMACrossover
 from strategies.lightgbm_strategy import LightGBMStrategy
@@ -63,7 +65,7 @@ async def main():
     logger.info("Starting TitanFlow SignalEngine...")
     redis_host = os.getenv("REDIS_HOST", "redis")
     redis_client = redis.from_url(f"redis://{redis_host}:6379")
-    
+
     try:
         await redis_client.ping()
         logger.info("Connected to Redis.")
@@ -71,7 +73,15 @@ async def main():
         logger.error(f"Failed to connect to Redis: {e}")
         return
 
-    await run_signal_engine(redis_client)
+    try:
+        await db.connect()
+    except Exception as e:
+        logger.warning(f"Signal DB unavailable (non-fatal, continuing without historical bars): {e}")
+
+    try:
+        await run_signal_engine(redis_client)
+    finally:
+        await db.close()
 
 if __name__ == "__main__":
     try:

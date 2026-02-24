@@ -99,9 +99,9 @@ async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioMa
         "explanation": signal.get("explanation", [])
     }
 
-async def publish_portfolios(redis_client, manager: PortfolioManager):
+async def publish_portfolios(redis_client, manager: PortfolioManager, current_prices: Dict[str, float] = None):
     """Publish leaderboard/portfolio summaries to Redis."""
-    portfolios = manager.get_all_portfolios()
+    portfolios = manager.get_all_portfolios(current_prices)
     # Sort by equity (descending)
     portfolios.sort(key=lambda x: x['equity'], reverse=True)
     
@@ -304,7 +304,7 @@ async def run_paper_execution(redis_client):
                 
                 # Periodically publish portfolio updates
                 if (now - last_publish_at) >= publish_interval:
-                    await publish_portfolios(redis_client, manager)
+                    await publish_portfolios(redis_client, manager, current_prices)
                     last_publish_at = now
                 
             elif channel == "trade_signals":
