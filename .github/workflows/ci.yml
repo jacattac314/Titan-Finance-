@@ -21,8 +21,11 @@ jobs:
             - name: Install Dependencies
               run: |
                   python -m pip install --upgrade pip
-                  if [ -f services/signal/requirements.txt ]; then pip install -r services/signal/requirements.txt; fi
-                  # Add other service requirements as needed
+                  pip install pytest pytest-asyncio
+                  # Install pure-Python service deps (no torch — too large for CI)
+                  pip install redis python-dotenv asyncpg pandas numpy
+                  pip install ta scikit-learn
+                  pip install alpaca-py lightgbm shap
 
             - name: Lint with flake8
               run: |
@@ -31,6 +34,10 @@ jobs:
                   flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
                   # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
                   flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+            - name: Run unit tests
+              run: |
+                  pytest tests/unit/ -v --tb=short
 
     docker-build:
         runs-on: ubuntu-latest
