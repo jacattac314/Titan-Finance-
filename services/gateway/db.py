@@ -6,6 +6,7 @@ import asyncpg
 import socket
 import redis.asyncio as redis
 import json
+from typing import Optional
 
 logger = logging.getLogger("TitanDB")
 
@@ -68,12 +69,19 @@ class DatabaseManager:
                 "type": "trade"
             })
             await self.redis.publish("market_data", message)
+            await self.redis.set(f"price:{symbol}", str(price))
         except Exception as e:
             logger.error(f"Failed to publish to Redis: {e}")
 
-    async def get_latest_price(self, symbol: str):
-        """Fetch latest price from QuestDB (via PG Wire or REST, not implemented in v1 MVP usually just use cache)."""
-        # In a real HFT system, we'd query the latest state or keep an in-memory cache.
-        pass
+    async def get_latest_price(self, symbol: str) -> Optional[float]:
+        """Fetch latest price from Redis cache (populated by publish_tick)."""
+        if not self.redis:
+            return None
+        try:
+            value = await self.redis.get(f"price:{symbol}")
+            return float(value) if value is not None else None
+        except Exception as e:
+            logger.warning(f"get_latest_price failed for {symbol}: {e}")
+            return None
 
 db = DatabaseManager()

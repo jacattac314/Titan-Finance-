@@ -19,11 +19,9 @@ class VirtualPortfolio:
     def total_equity(self) -> float:
         """
         Calculates total equity (Cash + Market Value of Positions).
-        Note: Needs current market prices to be accurate. 
-        For MVP, we might estimate or require an update method.
+        Falls back to avg_price for positions without live quotes.
         """
-        # value = self.cash + sum(p['qty'] * current_price for p in positions)
-        return self.cash # Placeholder until we pass in current prices
+        return self.calculate_total_equity({})
 
     def get_market_value(self, current_prices: Dict[str, float]) -> float:
         """Calculate market value of positions based on latest prices."""

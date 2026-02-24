@@ -49,14 +49,15 @@ class PortfolioManager:
         else:
             logger.warning(f"Orphan fill received (Order={order_id}). No portfolio found.")
 
-    def get_all_portfolios(self) -> List[Dict]:
+    def get_all_portfolios(self, current_prices: Optional[Dict[str, float]] = None) -> List[Dict]:
         """Return summary of all portfolios for dashboard."""
+        prices = current_prices or {}
         return [
             {
                 "id": p_id,
                 "cash": p.cash,
                 "positions_count": len(p.positions),
-                "equity": p.calculate_total_equity({}) # TODO: Pass real prices
+                "equity": p.calculate_total_equity(prices)
             }
             for p_id, p in self.portfolios.items()
         ]

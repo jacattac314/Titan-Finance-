@@ -89,9 +89,11 @@ class LSTMStrategy(Strategy):
         available_cols = [c for c in cols if c in df.columns]
         
         if len(available_cols) < 14:
-             # Padding if missing? Or just select what we have. 
-             # For MVP let's expect strict match or slice.
-             pass
+            logger.warning(
+                f"[{self.symbol}] Expected 14 features, only {len(available_cols)} available "
+                f"({available_cols}). Skipping inference."
+            )
+            return None
 
         recent_data = df[available_cols].iloc[-self.lookback:].values
         
