@@ -34,6 +34,32 @@ const INITIAL_FILTERS: FilterState = {
   timeRange: "1H",
 };
 
+const SIMULATED_SYMBOLS = ["SPY", "QQQ", "NVDA", "AAPL"];
+const SIMULATED_MODELS = [
+  { id: "model-alpha", name: "Momentum Falcon" },
+  { id: "model-beta", name: "Mean Revert Atlas" },
+  { id: "model-gamma", name: "Macro Pulse" },
+  { id: "model-delta", name: "Volatility Weaver" },
+];
+const STARTING_CASH = 100_000;
+const DAY_STEPS = 42;
+
+interface SimulatedPosition {
+  symbol: string;
+  qty: number;
+  entryPrice: number;
+}
+
+interface SimulatedModelState {
+  model_id: string;
+  model_name: string;
+  cash: number;
+  realized_pnl: number;
+  trades: number;
+  wins: number;
+  open_positions: SimulatedPosition[];
+}
+
 interface SignalEventPayload {
   symbol?: string;
   signal?: string;
@@ -159,6 +185,7 @@ export default function DashboardShell() {
 
   const drawdownStateRef = useRef<Record<string, DrawdownState>>({});
   const signalsRef = useRef<SignalRecord[]>([]);
+  const receivedLiveDataRef = useRef(false);
 
   useEffect(() => {
     signalsRef.current = signals;
@@ -194,6 +221,7 @@ export default function DashboardShell() {
       setPrices((previous) =>
         [...previous, { symbol: payload.symbol as string, price: payload.price as number, timestamp }].slice(-4000)
       );
+      receivedLiveDataRef.current = true;
       setStatus((previous) => ({ ...previous, lastMarketTick: timestamp }));
     });
 
@@ -219,6 +247,7 @@ export default function DashboardShell() {
         explanation: formatSignalExplanation(payload.explanation),
       };
       setSignals((previous) => [next, ...previous].slice(0, 400));
+      receivedLiveDataRef.current = true;
       setStatus((previous) => ({ ...previous, lastSignal: timestamp }));
     });
 
@@ -268,6 +297,7 @@ export default function DashboardShell() {
       };
 
       setTrades((previous) => [next, ...previous].slice(0, 400));
+      receivedLiveDataRef.current = true;
       setStatus((previous) => ({ ...previous, lastTrade: timestamp }));
     });
 
@@ -313,6 +343,7 @@ export default function DashboardShell() {
       });
 
       setLeaderboardRows(rows);
+      receivedLiveDataRef.current = true;
       const nextMode = payload.mode || "paper";
       setStatus((previous) => ({ ...previous, executionMode: nextMode }));
     });
@@ -335,6 +366,212 @@ export default function DashboardShell() {
       clearInterval(latencyInterval);
       socket.disconnect();
     };
+  }, []);
+
+  useEffect(() => {
+    const simulatedModels: SimulatedModelState[] = SIMULATED_MODELS.map((model) => ({
+      model_id: model.id,
+      model_name: model.name,
+      cash: STARTING_CASH,
+      realized_pnl: 0,
+      trades: 0,
+      wins: 0,
+      open_positions: [],
+    }));
+
+    const priceBySymbol = Object.fromEntries(
+      SIMULATED_SYMBOLS.map((symbol, index) => [symbol, 95 + index * 22])
+    ) as Record<string, number>;
+
+    let dayStep = 0;
+    let previousTick = Date.now();
+
+    const portfolioRows = (): LeaderboardRow[] =>
+      simulatedModels.map((model) => {
+        const openValue = model.open_positions.reduce(
+          (sum, position) => sum + position.qty * priceBySymbol[position.symbol],
+          0
+        );
+        const equity = model.cash + openValue;
+        const pnl = equity - STARTING_CASH;
+
+        const previous = drawdownStateRef.current[model.model_id] || {
+          peak: equity,
+          maxDrawdownPct: 0,
+        };
+        const peak = Math.max(previous.peak, equity);
+        const drawdownPct = peak > 0 ? ((equity - peak) / peak) * 100 : 0;
+        const maxDrawdownPct = Math.min(previous.maxDrawdownPct, drawdownPct);
+        drawdownStateRef.current[model.model_id] = { peak, maxDrawdownPct };
+
+        return {
+          model_id: model.model_id,
+          model_name: model.model_name,
+          cash: model.cash,
+          equity,
+          pnl,
+          pnl_pct: (pnl / STARTING_CASH) * 100,
+          realized_pnl: model.realized_pnl,
+          trades: model.trades,
+          wins: model.wins,
+          win_rate: model.trades > 0 ? (model.wins / model.trades) * 100 : 0,
+          open_positions: model.open_positions.length,
+          max_drawdown_pct: Math.abs(maxDrawdownPct),
+        };
+      });
+
+    const closeAllPositions = (timestamp: number) => {
+      simulatedModels.forEach((model) => {
+        model.open_positions.forEach((position) => {
+          const exitPrice = priceBySymbol[position.symbol];
+          const realizedPnl = (exitPrice - position.entryPrice) * position.qty;
+          model.cash += position.qty * exitPrice;
+          model.realized_pnl += realizedPnl;
+          model.trades += 1;
+          if (realizedPnl > 0) model.wins += 1;
+
+          const liquidationTrade: TradeRecord = {
+            id: makeId('trade'),
+            symbol: position.symbol,
+            side: 'SELL',
+            qty: position.qty,
+            price: exitPrice,
+            timestamp,
+            status: 'EOD_LIQUIDATION',
+            modelId: model.model_id,
+            modelName: model.model_name,
+            realizedPnl,
+            inferredEntryPrice: position.entryPrice,
+            explanation: ['End-of-day risk reset'],
+          };
+
+          setTrades((previous) => [liquidationTrade, ...previous].slice(0, 400));
+        });
+        model.open_positions = [];
+      });
+    };
+
+    const interval = setInterval(() => {
+      if (receivedLiveDataRef.current) {
+        return;
+      }
+
+      const timestamp = Date.now();
+      const tickLatency = Math.max(1, timestamp - previousTick);
+      previousTick = timestamp;
+      dayStep += 1;
+
+      SIMULATED_SYMBOLS.forEach((symbol) => {
+        const drift = (Math.random() - 0.48) * 0.014;
+        priceBySymbol[symbol] = Number((priceBySymbol[symbol] * (1 + drift)).toFixed(2));
+      });
+
+      const nextPrices: PriceRecord[] = SIMULATED_SYMBOLS.map((symbol) => ({
+        symbol,
+        price: priceBySymbol[symbol],
+        timestamp,
+      }));
+      setPrices((previous) => [...previous, ...nextPrices].slice(-4000));
+
+      simulatedModels.forEach((model) => {
+        const symbol = SIMULATED_SYMBOLS[Math.floor(Math.random() * SIMULATED_SYMBOLS.length)];
+        const price = priceBySymbol[symbol];
+        const openPosition = model.open_positions.find((position) => position.symbol === symbol);
+
+        let signal: SignalRecord['signal'] = 'HOLD';
+        const confidence = 0.55 + Math.random() * 0.35;
+        const momentum = Math.random() - 0.5;
+
+        if (!openPosition && momentum > 0.12 && model.cash > price * 20) {
+          signal = 'BUY';
+        } else if (openPosition && (momentum < -0.08 || dayStep >= DAY_STEPS - 2)) {
+          signal = 'SELL';
+        }
+
+        const nextSignal: SignalRecord = {
+          id: makeId('signal'),
+          symbol,
+          signal,
+          confidence,
+          price,
+          timestamp,
+          modelId: model.model_id,
+          modelName: model.model_name,
+          explanation:
+            signal === 'BUY'
+              ? ['Momentum breakout', 'Risk budget available']
+              : signal === 'SELL'
+                ? ['Profit/risk take', 'Close before end-of-day']
+                : ['No clear edge'],
+        };
+        setSignals((previous) => [nextSignal, ...previous].slice(0, 400));
+
+        if (signal === 'BUY') {
+          const qty = Math.max(1, Math.floor((model.cash * (0.1 + Math.random() * 0.18)) / price));
+          model.cash -= qty * price;
+          model.open_positions.push({ symbol, qty, entryPrice: price });
+          model.trades += 1;
+
+          const buyTrade: TradeRecord = {
+            id: makeId('trade'),
+            symbol,
+            side: 'BUY',
+            qty,
+            price,
+            timestamp,
+            status: 'FILLED',
+            modelId: model.model_id,
+            modelName: model.model_name,
+            realizedPnl: 0,
+            inferredEntryPrice: null,
+            explanation: ['Opened paper position'],
+          };
+          setTrades((previous) => [buyTrade, ...previous].slice(0, 400));
+        }
+
+        if (signal === 'SELL' && openPosition) {
+          const realizedPnl = (price - openPosition.entryPrice) * openPosition.qty;
+          model.cash += openPosition.qty * price;
+          model.realized_pnl += realizedPnl;
+          model.trades += 1;
+          if (realizedPnl > 0) model.wins += 1;
+          model.open_positions = model.open_positions.filter((position) => position !== openPosition);
+
+          const sellTrade: TradeRecord = {
+            id: makeId('trade'),
+            symbol,
+            side: 'SELL',
+            qty: openPosition.qty,
+            price,
+            timestamp,
+            status: 'FILLED',
+            modelId: model.model_id,
+            modelName: model.model_name,
+            realizedPnl,
+            inferredEntryPrice: openPosition.entryPrice,
+            explanation: ['Closed paper position'],
+          };
+          setTrades((previous) => [sellTrade, ...previous].slice(0, 400));
+        }
+      });
+
+      if (dayStep >= DAY_STEPS) {
+        closeAllPositions(timestamp);
+        dayStep = 0;
+      }
+
+      setLeaderboardRows(portfolioRows());
+      setStatus((previous) => ({
+        ...previous,
+        executionMode: 'paper',
+        lastMarketTick: timestamp,
+        lastSignal: timestamp,
+        lastTrade: timestamp,
+        latencyMs: tickLatency,
+      }));
+    }, 1200);
+
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
