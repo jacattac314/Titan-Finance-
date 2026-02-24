@@ -58,4 +58,5 @@ This roadmap is the implementation plan for turning TitanFlow into a production-
 - This roadmap is intentionally execution-focused and should be updated as milestones close.
 - For architecture context, see `docs/ARCHITECTURE.md`.
 - For strategic context, see `docs/STRATEGIC_BLUEPRINT.md`.
+- For MVP execution priorities, see `docs/MVP_NEXT_STEPS.md`.
 
