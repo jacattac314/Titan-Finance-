@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit
+#
+# Runs sync_architecture.py whenever service Python files are staged.
+# If the script updates ARCHITECTURE.md, the updated file is automatically
+# added to the current commit.
+#
+# Install once per clone:
+#   git config core.hooksPath .githooks
+#
+set -euo pipefail
+
+# Check if any services/**/*.py files are in the staging area
+STAGED=$(git diff --cached --name-only | grep -E '^services/.*\.py$' | head -1 || true)
+if [ -z "$STAGED" ]; then
+    exit 0
+fi
+
+echo "[pre-commit] Service code changed — syncing architecture docs…"
+
+# Locate Python (prefer the venv if active, then system python3)
+PYTHON="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python3}"
+PYTHON="${PYTHON:-python3}"
+
+if ! "$PYTHON" scripts/sync_architecture.py; then
+    echo "[pre-commit] ERROR: sync_architecture.py exited with errors." >&2
+    exit 1
+fi
+
+# Stage any updated docs so they are included in this commit
+UPDATED_DOCS=(
+    "docs/ARCHITECTURE.md"
+)
+for doc in "${UPDATED_DOCS[@]}"; do
+    if [ -f "$doc" ] && ! git diff --quiet "$doc"; then
+        echo "[pre-commit] Staging updated doc: $doc"
+        git add "$doc"
+    fi
+done
+
+exit 0

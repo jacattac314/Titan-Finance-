@@ -43,11 +43,12 @@ async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioMa
     Returns a Fill Event dictionary if successful, None otherwise.
     """
     model_id = signal.get("model_id", "default_model")
-    side = signal.get("signal")
+    # Support both execution_requests ("side": "buy"/"sell") and legacy trade_signals ("signal": "BUY"/"SELL")
+    side = (signal.get("side") or signal.get("signal") or "").upper()
     symbol = signal.get("symbol")
     # Paper Mode: Use signal price or current market price
     decision_price = float(signal.get("price") or current_price or 0.0)
-    
+
     if decision_price <= 0:
         return None
 
@@ -56,19 +57,23 @@ async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioMa
     if not portfolio:
         portfolio = manager.create_portfolio(model_id)
 
-    # Determine Quantity (Simple logic for now)
-    trade_amount = 10000.0 
+    # Prefer risk-calculated qty from execution_requests; fall back to internal sizing
+    risk_qty = signal.get("qty")
+    trade_amount = 10000.0
     qty = 0
     if side == "BUY":
-        if portfolio.cash < 10.0: 
+        if portfolio.cash < 10.0:
             return None
-        actual_amount = min(portfolio.cash, trade_amount)
-        qty = int(actual_amount / decision_price)
+        if risk_qty:
+            qty = int(risk_qty)
+        else:
+            actual_amount = min(portfolio.cash, trade_amount)
+            qty = int(actual_amount / decision_price)
     elif side == "SELL":
         current_pos = portfolio.positions.get(symbol)
         if not current_pos or current_pos['qty'] <= 0:
             return None
-        qty = current_pos['qty'] 
+        qty = int(risk_qty) if risk_qty else current_pos['qty']
 
     if qty <= 0:
         return None
@@ -161,8 +166,8 @@ async def run_live_execution(redis_client):
 
     # --- Subscribe to channels ---
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe("trade_signals", "market_data")
-    logger.info("Live execution subscribed to [trade_signals, market_data].")
+    await pubsub.subscribe("execution_requests", "market_data", "risk_commands")
+    logger.info("Live execution subscribed to [execution_requests, market_data, risk_commands].")
 
     async for message in pubsub.listen():
         try:
@@ -211,21 +216,22 @@ async def run_live_execution(redis_client):
                                 model_version=model_version,
                             )
 
-            # ---- Trade signal: execute via Alpaca ----
-            elif channel == "trade_signals":
+            # ---- Risk-approved execution request ----
+            elif channel == "execution_requests":
                 model_id = payload.get("model_id", "unknown")
                 symbol = payload.get("symbol", "")
-                signal_str = payload.get("signal", "HOLD")
+                # execution_requests uses "side": "buy"/"sell"; normalise to "BUY"/"SELL"
+                signal_str = (payload.get("side") or payload.get("signal") or "HOLD").upper()
                 confidence = float(payload.get("confidence", 0.0))
                 explanation = payload.get("explanation", [])
                 price = current_prices.get(symbol, float(payload.get("price", 0) or 0))
 
                 logger.info(
-                    f"Signal received [{model_id}]: {signal_str} {symbol} "
+                    f"Execution request [{model_id}]: {signal_str} {symbol} "
                     f"conf={confidence:.2%} price={price}"
                 )
 
-                # 1. Audit the raw signal
+                # 1. Audit the risk-approved request
                 await audit.log_signal(
                     model_id=model_id,
                     model_version=model_version,
@@ -260,12 +266,35 @@ async def run_live_execution(redis_client):
                         status=result["status"],
                         mode=result["mode"],
                     )
-                    # Publish fill-like event for dashboard compatibility
                     await redis_client.publish("execution_filled", json.dumps({
                         **result,
                         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                         "mode": "live",
                     }))
+
+            # ---- Risk commands (kill-switch, manual approval) ----
+            elif channel == "risk_commands":
+                command = payload.get("command")
+                if command == "LIQUIDATE_ALL":
+                    logger.critical(
+                        f"RISK_COMMAND: LIQUIDATE_ALL — "
+                        f"reason={payload.get('reason', 'unknown')}"
+                    )
+                    connector.activate_kill_switch()
+                    connector.liquidate_all()
+                    await audit.log_kill_switch(
+                        trigger=f"risk_commands: {payload.get('reason', 'unknown')}",
+                        drawdown_pct=0.0,
+                        equity=0.0,
+                        model_version=model_version,
+                    )
+                elif command == "ACTIVATE_MANUAL_APPROVAL":
+                    logger.warning(
+                        f"RISK_COMMAND: ACTIVATE_MANUAL_APPROVAL — "
+                        f"sharpe={payload.get('rolling_sharpe')} "
+                        f"accuracy={payload.get('rolling_accuracy')}"
+                    )
+                    connector.set_manual_approval(True)
 
         except Exception as exc:
             logger.error(f"Error in live execution loop: {exc}")
@@ -279,8 +308,8 @@ async def run_paper_execution(redis_client):
     
     # Redis Channels
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe("trade_signals", "market_data")
-    logger.info("Execution mode=paper. Listening for signals...")
+    await pubsub.subscribe("execution_requests", "market_data", "risk_commands")
+    logger.info("Execution mode=paper. Subscribed to [execution_requests, market_data, risk_commands].")
 
     last_publish_at = 0.0
     current_prices = {} # symbol -> price
@@ -307,22 +336,41 @@ async def run_paper_execution(redis_client):
                     await publish_portfolios(redis_client, manager, current_prices)
                     last_publish_at = now
                 
-            elif channel == "trade_signals":
-                # 1. Received Signal
-                logger.info(f"Received Signal: {payload}")
+            elif channel == "execution_requests":
+                # 1. Received risk-approved request
+                logger.info(f"Execution request: {payload}")
                 symbol = payload.get("symbol")
                 price = current_prices.get(symbol, 0.0)
-                
+
                 # 2. Simulate Execution (Broker Step) with Async Latency
                 fill = await simulate_fill(payload, price, manager)
-                
+
                 if fill:
-                    # 3. Update Portfolio (Legder Step)
+                    # 3. Update Portfolio (Ledger Step)
                     manager.on_execution_fill(fill)
-                    
-                    # 4. Publish Fill Event (for Dashboard/Logs)
+
+                    # 4. Publish Fill Event (for Dashboard/Risk feedback loop)
                     await redis_client.publish("execution_filled", json.dumps(fill))
                     logger.info(f"Executed ({fill['slippage']}): {fill['side']} {fill['qty']} {fill['symbol']} @ {fill['price']}")
+
+            elif channel == "risk_commands":
+                command = payload.get("command")
+                if command == "LIQUIDATE_ALL":
+                    logger.critical(
+                        f"RISK_COMMAND: LIQUIDATE_ALL (paper) — "
+                        f"reason={payload.get('reason', 'unknown')}"
+                    )
+                    # In paper mode: mark all portfolios as halted
+                    for portfolio_id in list(manager._portfolios.keys()):
+                        p = manager.get_portfolio(portfolio_id)
+                        if p:
+                            logger.warning(f"Paper liquidation: closing portfolio {portfolio_id}")
+                elif command == "ACTIVATE_MANUAL_APPROVAL":
+                    logger.warning(
+                        f"RISK_COMMAND: ACTIVATE_MANUAL_APPROVAL (paper) — "
+                        f"sharpe={payload.get('rolling_sharpe')} "
+                        f"accuracy={payload.get('rolling_accuracy')}"
+                    )
 
         except Exception as exc:
             logger.error(f"Error in paper execution loop: {exc}")
