@@ -24,7 +24,7 @@ jobs:
                   # Pin setuptools<67 before installing ta — newer setuptools
                   # removed the install_layout attribute that ta's setup.py requires.
                   pip install 'setuptools<67'
-                  pip install pytest pytest-asyncio
+                  pip install pytest pytest-asyncio pytest-cov
                   # Install pure-Python service deps (no torch — too large for CI)
                   pip install redis python-dotenv asyncpg pandas numpy
                   pip install ta scikit-learn
@@ -38,13 +38,24 @@ jobs:
                   # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
                   flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-            - name: Run unit tests
+            - name: Run tests with coverage
               run: |
-                  pytest tests/unit/ -v --tb=short
+                  # Run unit + integration together so coverage spans both suites.
+                  # --cov-fail-under is also enforced via [tool.coverage.report] in
+                  # pyproject.toml; passing it on the CLI makes the failure reason explicit.
+                  pytest tests/unit/ tests/integration/ -v \
+                    --cov=services \
+                    --cov-report=term-missing \
+                    --cov-report=xml:coverage.xml \
+                    --cov-fail-under=90
 
-            - name: Run integration tests (pipeline e2e)
-              run: |
-                  pytest tests/integration/ -v --tb=short
+            - name: Upload coverage report
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: coverage-report
+                  path: coverage.xml
+                  retention-days: 30
 
     docker-build:
         runs-on: ubuntu-latest

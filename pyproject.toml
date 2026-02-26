@@ -5,3 +5,34 @@ testpaths = ["tests/unit", "tests/integration"]
 asyncio_mode = "auto"
 # Short tracebacks by default; override with -v for verbose
 addopts = "--tb=short"
+
+[tool.coverage.run]
+# Measure branch coverage in addition to line coverage
+branch = true
+source = ["services"]
+omit = [
+    "*/tests/*",
+    "*/conftest.py",
+    # Entry-point mains are integration-tested via the pipeline; skip them here
+    "services/*/main.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+# Fail the build if total coverage falls below this floor
+fail_under = 90
+# Omit 100%-covered files from the terminal report to reduce noise
+skip_covered = false
+exclude_lines = [
+    # Standard pragmas
+    "pragma: no cover",
+    # Abstract methods that must be overridden
+    "raise NotImplementedError",
+    # Type-checking-only blocks
+    "if TYPE_CHECKING:",
+    # Unreachable defensive guards
+    "assert False",
+]
+
+[tool.coverage.xml]
+output = "coverage.xml"
