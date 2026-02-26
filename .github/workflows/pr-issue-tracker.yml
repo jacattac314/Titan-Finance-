@@ -1,0 +1,139 @@
+name: PR Issue Tracker
+
+# Automatically creates a tracking issue when a PR is opened, assigns it to
+# the PR author, and closes the issue when the PR is merged.
+
+on:
+    pull_request:
+        types: [opened, closed]
+
+jobs:
+    create-issue:
+        if: github.event.action == 'opened'
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+            pull-requests: read
+
+        steps:
+            - name: Create tracking issue for PR
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const pr     = context.payload.pull_request;
+                      const author = pr.user.login;
+                      const prNum  = pr.number;
+                      const prUrl  = pr.html_url;
+                      const branch = pr.head.ref;
+
+                      // Build the issue body
+                      const body = [
+                        `## Tracking issue for PR #${prNum}`,
+                        ``,
+                        `**Branch:** \`${branch}\``,
+                        `**Author:** @${author}`,
+                        `**PR:** ${prUrl}`,
+                        ``,
+                        `### Summary`,
+                        pr.body || '_No PR description provided._',
+                        ``,
+                        `---`,
+                        `> This issue is managed automatically by the PR Issue Tracker workflow.`,
+                        `> It will be closed automatically when the PR is merged.`,
+                      ].join('\n');
+
+                      // Ensure the pr-tracking label exists (create it if absent)
+                      try {
+                        await github.rest.issues.createLabel({
+                          owner: context.repo.owner,
+                          repo:  context.repo.repo,
+                          name:  'pr-tracking',
+                          color: '0075ca',
+                          description: 'Automatically managed tracking issue for a pull request',
+                        });
+                      } catch (e) {
+                        // 422 = label already exists — that's fine
+                        if (e.status !== 422) throw e;
+                      }
+
+                      // Create the issue
+                      const { data: issue } = await github.rest.issues.create({
+                        owner:   context.repo.owner,
+                        repo:    context.repo.repo,
+                        title:   `[PR #${prNum}] ${pr.title}`,
+                        body,
+                        assignees: [author],
+                        labels:    ['pr-tracking'],
+                      });
+
+                      console.log(`Created issue #${issue.number}: ${issue.html_url}`);
+
+                      // Store the issue number as a comment on the PR so the
+                      // close-issue job can find it without extra API calls.
+                      await github.rest.issues.createComment({
+                        owner:      context.repo.owner,
+                        repo:       context.repo.repo,
+                        issue_number: prNum,
+                        body: `<!-- pr-tracking-issue: ${issue.number} -->\n` +
+                              `Tracking issue created: #${issue.number}`,
+                      });
+
+    close-issue:
+        if: github.event.action == 'closed' && github.event.pull_request.merged == true
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+            pull-requests: read
+
+        steps:
+            - name: Close tracking issue on merge
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const prNum = context.payload.pull_request.number;
+
+                      // Find the tracking issue number from the PR comments
+                      const comments = await github.rest.issues.listComments({
+                        owner:        context.repo.owner,
+                        repo:         context.repo.repo,
+                        issue_number: prNum,
+                        per_page:     100,
+                      });
+
+                      const marker = '<!-- pr-tracking-issue:';
+                      const comment = comments.data.find(c => c.body.includes(marker));
+
+                      if (!comment) {
+                        console.log('No tracking issue comment found — skipping close.');
+                        return;
+                      }
+
+                      const match = comment.body.match(/<!-- pr-tracking-issue: (\d+) -->/);
+                      if (!match) {
+                        console.log('Could not parse tracking issue number — skipping close.');
+                        return;
+                      }
+
+                      const issueNumber = parseInt(match[1], 10);
+                      const pr = context.payload.pull_request;
+
+                      // Comment on the issue before closing
+                      await github.rest.issues.createComment({
+                        owner:        context.repo.owner,
+                        repo:         context.repo.repo,
+                        issue_number: issueNumber,
+                        body: `PR #${prNum} was merged into \`${pr.base.ref}\` by @${pr.merged_by.login}.\n\nClosing this tracking issue.`,
+                      });
+
+                      // Close the issue
+                      await github.rest.issues.update({
+                        owner:        context.repo.owner,
+                        repo:         context.repo.repo,
+                        issue_number: issueNumber,
+                        state:        'closed',
+                        state_reason: 'completed',
+                      });
+
+                      console.log(`Closed tracking issue #${issueNumber}`);

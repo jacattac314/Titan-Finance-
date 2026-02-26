@@ -360,11 +360,10 @@ async def run_paper_execution(redis_client):
                         f"RISK_COMMAND: LIQUIDATE_ALL (paper) — "
                         f"reason={payload.get('reason', 'unknown')}"
                     )
-                    # In paper mode: mark all portfolios as halted
-                    for portfolio_id in list(manager._portfolios.keys()):
-                        p = manager.get_portfolio(portfolio_id)
-                        if p:
-                            logger.warning(f"Paper liquidation: closing portfolio {portfolio_id}")
+                    # In paper mode: log each portfolio as halted (full liquidation
+                    # logic to be implemented in Phase 2 order-lifecycle work)
+                    for portfolio_id in list(manager.portfolios.keys()):
+                        logger.warning(f"Paper liquidation: halting portfolio {portfolio_id}")
                 elif command == "ACTIVATE_MANUAL_APPROVAL":
                     logger.warning(
                         f"RISK_COMMAND: ACTIVATE_MANUAL_APPROVAL (paper) — "

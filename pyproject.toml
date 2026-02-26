@@ -1,6 +1,6 @@
 [tool.pytest.ini_options]
 # Discover all tests under tests/
-testpaths = ["tests/unit"]
+testpaths = ["tests/unit", "tests/integration"]
 # Use asyncio mode "auto" so async test functions work without extra decorators
 asyncio_mode = "auto"
 # Short tracebacks by default; override with -v for verbose
