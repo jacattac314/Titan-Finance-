@@ -10,6 +10,7 @@ from db import db
 
 # Strategies
 from strategies.sma_crossover import SMACrossover
+from strategies.rsi_strategy import RSIMeanReversion
 from strategies.lightgbm_strategy import LightGBMStrategy
 from strategies.lstm_strategy import LSTMStrategy
 from strategies.tft_strategy import TFTStrategy
@@ -30,9 +31,10 @@ async def run_signal_engine(redis_client):
     # In a real app, load from DB/Config
     strategies = [
         SMACrossover({"symbol": "SPY", "fast_period": 10, "slow_period": 30, "model_id": "sma_spy"}),
+        RSIMeanReversion({"symbol": "SPY", "model_id": "rsi_spy_v1", "rsi_period": 14, "oversold": 30, "overbought": 70}),
         LightGBMStrategy({"symbol": "SPY", "model_id": "lgb_spy_v1", "confidence_threshold": 0.6}),
         LSTMStrategy({"symbol": "SPY", "model_id": "lstm_spy_v1", "lookback": 60}),
-        TFTStrategy({"symbol": "SPY", "model_id": "tft_spy_v1", "lookback": 60})
+        TFTStrategy({"symbol": "SPY", "model_id": "tft_spy_v1", "lookback": 60}),
     ]
     
     # 2. Subscribe to Market Data

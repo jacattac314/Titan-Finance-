@@ -50,14 +50,10 @@ class PortfolioManager:
             logger.warning(f"Orphan fill received (Order={order_id}). No portfolio found.")
 
     def get_all_portfolios(self, current_prices: Optional[Dict[str, float]] = None) -> List[Dict]:
-        """Return summary of all portfolios for dashboard."""
+        """
+        Return a performance summary for every portfolio, including
+        risk-adjusted metrics (Sortino, Calmar, max drawdown).
+        Also records an equity snapshot on each call so metrics stay fresh.
+        """
         prices = current_prices or {}
-        return [
-            {
-                "id": p_id,
-                "cash": p.cash,
-                "positions_count": len(p.positions),
-                "equity": p.calculate_total_equity(prices)
-            }
-            for p_id, p in self.portfolios.items()
-        ]
+        return [p.performance_summary(prices) for p in self.portfolios.values()]

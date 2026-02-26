@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 from typing import Dict, List, Optional
 import uuid
@@ -93,5 +94,91 @@ class VirtualPortfolio:
         self.equity_curve.append({
             "timestamp": datetime.utcnow().isoformat(),
             "equity": equity,
-            "cash": self.cash
+            "cash": self.cash,
         })
+
+    # ------------------------------------------------------------------
+    # Risk-adjusted performance metrics
+    # ------------------------------------------------------------------
+
+    def max_drawdown(self) -> float:
+        """
+        Maximum peak-to-trough decline observed in the equity curve.
+        Returns a value in [0, 1] (e.g. 0.15 = 15% drawdown).
+        Returns 0.0 if fewer than 2 snapshots exist.
+        """
+        if len(self.equity_curve) < 2:
+            return 0.0
+        equities = [p["equity"] for p in self.equity_curve]
+        peak = equities[0]
+        max_dd = 0.0
+        for equity in equities:
+            if equity > peak:
+                peak = equity
+            if peak > 0:
+                drawdown = (peak - equity) / peak
+                if drawdown > max_dd:
+                    max_dd = drawdown
+        return round(max_dd, 4)
+
+    def sortino_ratio(self) -> Optional[float]:
+        """
+        Annualised Sortino ratio (penalises only downside volatility).
+        Requires at least 5 equity snapshots; returns None otherwise.
+        Annualisation factor assumes ~252 trading periods per year.
+        """
+        if len(self.equity_curve) < 5:
+            return None
+        equities = [p["equity"] for p in self.equity_curve]
+        returns = [
+            (equities[i] - equities[i - 1]) / equities[i - 1]
+            for i in range(1, len(equities))
+            if equities[i - 1] > 0
+        ]
+        if not returns:
+            return None
+        mean_r = sum(returns) / len(returns)
+        downside = [r for r in returns if r < 0]
+        if not downside:
+            return None
+        downside_std = math.sqrt(sum(r ** 2 for r in downside) / len(downside))
+        if downside_std == 0:
+            return None
+        return round(mean_r / downside_std * math.sqrt(252), 4)
+
+    def calmar_ratio(self) -> Optional[float]:
+        """
+        Calmar ratio: total return divided by maximum drawdown.
+        Returns None when fewer than 2 snapshots exist or drawdown is zero.
+        """
+        if len(self.equity_curve) < 2:
+            return None
+        equities = [p["equity"] for p in self.equity_curve]
+        if equities[0] <= 0:
+            return None
+        total_return = (equities[-1] - equities[0]) / equities[0]
+        max_dd = self.max_drawdown()
+        if max_dd == 0:
+            return None
+        return round(total_return / max_dd, 4)
+
+    def performance_summary(self, current_prices: Dict[str, float]) -> Dict:
+        """
+        Return a complete performance snapshot suitable for the leaderboard
+        payload.  Calls snapshot() so the current equity is always recorded.
+        """
+        self.snapshot(current_prices)
+        return {
+            "id": self.id,
+            "cash": round(self.cash, 2),
+            "equity": round(self.calculate_total_equity(current_prices), 2),
+            "positions_count": len(self.positions),
+            "total_return_pct": round(
+                (self.calculate_total_equity(current_prices) - self.initial_cash)
+                / self.initial_cash * 100, 2
+            ) if self.initial_cash > 0 else 0.0,
+            "max_drawdown_pct": round(self.max_drawdown() * 100, 2),
+            "sortino_ratio": self.sortino_ratio(),
+            "calmar_ratio": self.calmar_ratio(),
+            "snapshot_count": len(self.equity_curve),
+        }

@@ -105,11 +105,23 @@ async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioMa
     }
 
 async def publish_portfolios(redis_client, manager: PortfolioManager, current_prices: Dict[str, float] = None):
-    """Publish leaderboard/portfolio summaries to Redis."""
+    """
+    Publish leaderboard/portfolio summaries to Redis (paper_portfolio_updates).
+
+    Sort order: Sortino ratio (risk-adjusted) when available; otherwise raw
+    equity.  This means models are ranked by quality, not just size.
+    """
     portfolios = manager.get_all_portfolios(current_prices)
-    # Sort by equity (descending)
-    portfolios.sort(key=lambda x: x['equity'], reverse=True)
-    
+
+    def _rank_key(p):
+        # Prefer Sortino; fall back to total_return_pct, then equity
+        sortino = p.get("sortino_ratio")
+        if sortino is not None:
+            return (1, sortino)
+        return (0, p.get("total_return_pct", p.get("equity", 0)))
+
+    portfolios.sort(key=_rank_key, reverse=True)
+
     payload = {
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "best_model": portfolios[0]["id"] if portfolios else None,

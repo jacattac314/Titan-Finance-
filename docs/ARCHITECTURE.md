@@ -49,6 +49,7 @@ messaging to ensure low latency and high decoupling.
 |---|---|---|
 | `LightGBMStrategy` | `services/signal/strategies/lightgbm_strategy.py` | Gradient boosting |
 | `LSTMStrategy` | `services/signal/strategies/lstm_strategy.py` | Deep learning |
+| `RSIMeanReversion` | `services/signal/strategies/rsi_strategy.py` | Rule-based |
 | `SMACrossover` | `services/signal/strategies/sma_crossover.py` | Rule-based |
 | `TFTStrategy` | `services/signal/strategies/tft_strategy.py` | Transformer |
 <!-- AUTO:strategies:end -->
@@ -108,12 +109,12 @@ messaging to ensure low latency and high decoupling.
 | Channel | Publisher(s) | Subscriber(s) | Payload |
 |---|---|---|---|
 | `audit_events` | execution | — | audit trail record |
-| `execution_filled` | execution | risk | fill event |
+| `execution_filled` | execution | dashboard, risk | fill event |
 | `execution_requests` | risk | execution | risk-approved order (qty, side, model_id) |
-| `market_data` | gateway | execution, signal | normalised tick |
-| `paper_portfolio_updates` | execution | — | leaderboard snapshot |
+| `market_data` | gateway | dashboard, execution, signal | normalised tick |
+| `paper_portfolio_updates` | execution | dashboard | leaderboard snapshot |
 | `risk_commands` | risk | execution | LIQUIDATE_ALL / ACTIVATE_MANUAL_APPROVAL |
-| `trade_signals` | signal | risk | BUY/SELL + confidence + explanation |
+| `trade_signals` | signal | dashboard, risk | BUY/SELL + confidence + explanation |
 <!-- AUTO:channels:end -->
 
 ### QuestDB

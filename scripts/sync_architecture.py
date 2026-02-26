@@ -75,6 +75,18 @@ def collect_redis_channels() -> dict:
                 if service not in entry:
                     entry.append(service)
 
+    # Also scan the Next.js dashboard server (JavaScript) for subscribe calls
+    # so the channel table shows "dashboard" as a subscriber where applicable.
+    _js_subscribe_re = re.compile(r'\.subscribe\(\s*["\']([^"\']+)["\']')
+    dashboard_server = REPO_ROOT / "dashboard" / "server.js"
+    if dashboard_server.exists():
+        js_text = dashboard_server.read_text(errors="replace")
+        for m in _js_subscribe_re.finditer(js_text):
+            ch = m.group(1)
+            entry = channels[ch]["subscribes"]
+            if "dashboard" not in entry:
+                entry.append("dashboard")
+
     return dict(channels)
 
 
