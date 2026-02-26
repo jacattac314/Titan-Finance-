@@ -69,6 +69,10 @@ export interface LeaderboardRow {
   win_rate: number;
   open_positions: number;
   max_drawdown_pct: number;
+  /** Annualised Sortino ratio. null until ≥5 equity snapshots exist. */
+  sortino_ratio: number | null;
+  /** Calmar ratio (total return / max drawdown). null when drawdown is zero or insufficient data. */
+  calmar_ratio: number | null;
 }
 
 export interface SystemStatus {

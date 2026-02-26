@@ -9,6 +9,8 @@ type SortKey =
   | "pnl_pct"
   | "win_rate"
   | "max_drawdown_pct"
+  | "sortino_ratio"
+  | "calmar_ratio"
   | "trades"
   | "open_positions";
 
@@ -23,6 +25,18 @@ function safeNumber(value: unknown, fallback = 0): number {
 
 function formatSignedPercent(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+/** Colour a ratio: green ≥ 1, amber 0–1, red < 0, grey when null. */
+function ratioColorClass(value: number | null): string {
+  if (value === null) return "text-muted-foreground";
+  if (value >= 1) return "text-emerald-400";
+  if (value >= 0) return "text-amber-300";
+  return "text-rose-400";
+}
+
+function formatRatio(value: number | null): string {
+  return value === null ? "—" : value.toFixed(2);
 }
 
 export default function ModelLeaderboard({ rows }: ModelLeaderboardProps) {
@@ -95,6 +109,18 @@ export default function ModelLeaderboard({ rows }: ModelLeaderboardProps) {
                 </button>
               </th>
               <th className="py-2 px-2 text-right">
+                <button type="button" className={headerButtonClass} onClick={() => requestSort("sortino_ratio")}
+                  title="Sortino ratio: annualised return / downside volatility. Available after ≥5 portfolio snapshots.">
+                  Sortino
+                </button>
+              </th>
+              <th className="py-2 px-2 text-right">
+                <button type="button" className={headerButtonClass} onClick={() => requestSort("calmar_ratio")}
+                  title="Calmar ratio: total return / max drawdown. Higher is better.">
+                  Calmar
+                </button>
+              </th>
+              <th className="py-2 px-2 text-right">
                 <button type="button" className={headerButtonClass} onClick={() => requestSort("trades")}>
                   Trades
                 </button>
@@ -109,7 +135,7 @@ export default function ModelLeaderboard({ rows }: ModelLeaderboardProps) {
           <tbody>
             {sortedRows.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-muted-foreground">
+                <td colSpan={9} className="py-6 text-center text-muted-foreground">
                   Waiting for paper portfolio data...
                 </td>
               </tr>
@@ -126,6 +152,12 @@ export default function ModelLeaderboard({ rows }: ModelLeaderboardProps) {
                 <td className="py-3 px-2 text-right font-mono">{safeNumber(row.win_rate).toFixed(1)}%</td>
                 <td className="py-3 px-2 text-right font-mono text-amber-300">
                   {safeNumber(row.max_drawdown_pct).toFixed(2)}%
+                </td>
+                <td className={`py-3 px-2 text-right font-mono ${ratioColorClass(row.sortino_ratio)}`}>
+                  {formatRatio(row.sortino_ratio)}
+                </td>
+                <td className={`py-3 px-2 text-right font-mono ${ratioColorClass(row.calmar_ratio)}`}>
+                  {formatRatio(row.calmar_ratio)}
                 </td>
                 <td className="py-3 px-2 text-right font-mono">{safeNumber(row.trades)}</td>
                 <td className="py-3 pl-2 text-right font-mono">{safeNumber(row.open_positions)}</td>

@@ -82,6 +82,12 @@ interface PortfolioModelPayload {
   wins: number;
   win_rate: number;
   open_positions: number;
+  /** Populated by the backend once ≥2 equity snapshots exist. */
+  max_drawdown_pct?: number;
+  /** Populated by the backend once ≥5 equity snapshots exist. null = insufficient data. */
+  sortino_ratio?: number | null;
+  /** Populated by the backend once ≥2 snapshots exist and drawdown > 0. */
+  calmar_ratio?: number | null;
 }
 
 interface PortfolioPayload {
@@ -292,9 +298,18 @@ export default function DashboardShell() {
 
         const peak = Math.max(previous.peak, equity);
         const drawdownPct = peak > 0 ? ((equity - peak) / peak) * 100 : 0;
-        const maxDrawdownPct = Math.min(previous.maxDrawdownPct, drawdownPct);
+        const clientMaxDrawdownPct = Math.min(previous.maxDrawdownPct, drawdownPct);
 
-        drawdownStateRef.current[modelId] = { peak, maxDrawdownPct };
+        drawdownStateRef.current[modelId] = { peak, maxDrawdownPct: clientMaxDrawdownPct };
+
+        // Prefer the backend's authoritative drawdown (computed from full equity curve);
+        // fall back to the client-side running peak tracker for legacy payloads.
+        const serverMaxDD = model?.max_drawdown_pct != null ? safeNumber(model.max_drawdown_pct) : null;
+        const maxDrawdownPct = serverMaxDD !== null ? serverMaxDD : Math.abs(clientMaxDrawdownPct);
+
+        // Risk-adjusted metrics — null until enough equity snapshots have accumulated.
+        const sortinoRatio = model?.sortino_ratio != null ? safeNumber(model.sortino_ratio) : null;
+        const calmarRatio = model?.calmar_ratio != null ? safeNumber(model.calmar_ratio) : null;
 
         return {
           model_id: modelId,
@@ -308,7 +323,9 @@ export default function DashboardShell() {
           wins,
           win_rate: winRate,
           open_positions: openPositions,
-          max_drawdown_pct: Math.abs(maxDrawdownPct),
+          max_drawdown_pct: maxDrawdownPct,
+          sortino_ratio: sortinoRatio,
+          calmar_ratio: calmarRatio,
         };
       });
 
