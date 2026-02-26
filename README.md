@@ -5,7 +5,7 @@
     <a href="https://www.python.org/"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10+-blue.svg"></a>a>
       <a href="https://www.docker.com/"><img alt="Docker Compose" src="https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white"></a>a>
         <a href=".github/workflows/ci.yml"><img alt="CI/CD" src="https://github.com/jacattac314/Titan-Finance-/workflows/CI/CD/badge.svg"></a>a>
-</p>p>
+</p>
 
 ## Overview
 
