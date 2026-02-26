@@ -11,6 +11,12 @@ __pycache__/
 venv/
 .env
 
+# pytest / coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # Node.js
 node_modules/
 dist/
