@@ -37,18 +37,22 @@ latency_sim = LatencySimulator()
 
 # --- Helper Functions for Paper Execution ---
 
-async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioManager) -> Optional[Dict]:
+async def simulate_fill(execution_req: Dict, current_price: float, manager: PortfolioManager) -> Optional[Dict]:
     """
     Simulates a trade execution for paper mode.
+    Expects an execution_requests payload (risk-approved) with pre-calculated qty.
     Returns a Fill Event dictionary if successful, None otherwise.
     """
-    model_id = signal.get("model_id", "default_model")
-    side = signal.get("signal")
-    symbol = signal.get("symbol")
-    # Paper Mode: Use signal price or current market price
-    decision_price = float(signal.get("price") or current_price or 0.0)
-    
-    if decision_price <= 0:
+    model_id = execution_req.get("model_id", "default_model")
+    # Risk service publishes side as lowercase "buy"/"sell"
+    side = execution_req.get("side", "").upper()
+    symbol = execution_req.get("symbol")
+    # Use risk-calculated qty; qty is pre-sized by RiskGuardian
+    qty = int(execution_req.get("qty", 0))
+    # Use current market price; execution_requests may not include price
+    decision_price = float(execution_req.get("price") or current_price or 0.0)
+
+    if decision_price <= 0 or qty <= 0 or side not in ("BUY", "SELL"):
         return None
 
     # Get or Create Portfolio
@@ -56,19 +60,14 @@ async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioMa
     if not portfolio:
         portfolio = manager.create_portfolio(model_id)
 
-    # Determine Quantity (Simple logic for now)
-    trade_amount = 10000.0 
-    qty = 0
-    if side == "BUY":
-        if portfolio.cash < 10.0: 
-            return None
-        actual_amount = min(portfolio.cash, trade_amount)
-        qty = int(actual_amount / decision_price)
-    elif side == "SELL":
+    # Local sanity checks
+    if side == "BUY" and portfolio.cash < 10.0:
+        return None
+    if side == "SELL":
         current_pos = portfolio.positions.get(symbol)
-        if not current_pos or current_pos['qty'] <= 0:
+        if not current_pos or current_pos.get("qty", 0) <= 0:
             return None
-        qty = current_pos['qty'] 
+        qty = current_pos["qty"]  # always sell the full position
 
     if qty <= 0:
         return None
@@ -96,7 +95,7 @@ async def simulate_fill(signal: Dict, current_price: float, manager: PortfolioMa
         "status": "FILLED",
         "mode": "paper",
         "slippage": round(executed_price - decision_price, 4),
-        "explanation": signal.get("explanation", [])
+        "explanation": execution_req.get("explanation", [])
     }
 
 async def publish_portfolios(redis_client, manager: PortfolioManager):
@@ -159,10 +158,10 @@ async def run_live_execution(redis_client):
     last_account_poll = 0.0
     current_prices: Dict[str, float] = {}
 
-    # --- Subscribe to channels ---
+    # --- Subscribe to channels — only risk-approved requests, never raw trade_signals ---
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe("trade_signals", "market_data")
-    logger.info("Live execution subscribed to [trade_signals, market_data].")
+    await pubsub.subscribe("execution_requests", "market_data")
+    logger.info("Live execution subscribed to [execution_requests, market_data].")
 
     async for message in pubsub.listen():
         try:
@@ -211,11 +210,11 @@ async def run_live_execution(redis_client):
                                 model_version=model_version,
                             )
 
-            # ---- Trade signal: execute via Alpaca ----
-            elif channel == "trade_signals":
+            # ---- Risk-approved execution request: execute via Alpaca ----
+            elif channel == "execution_requests":
                 model_id = payload.get("model_id", "unknown")
                 symbol = payload.get("symbol", "")
-                signal_str = payload.get("signal", "HOLD")
+                signal_str = payload.get("side", "hold").upper()  # risk sends "buy"/"sell"
                 confidence = float(payload.get("confidence", 0.0))
                 explanation = payload.get("explanation", [])
                 price = current_prices.get(symbol, float(payload.get("price", 0) or 0))
@@ -277,10 +276,10 @@ async def run_paper_execution(redis_client):
     starting_cash = float(os.getenv("PAPER_STARTING_CASH", "100000"))
     publish_interval = float(os.getenv("PAPER_PORTFOLIO_PUBLISH_SECONDS", "2"))
     
-    # Redis Channels
+    # Redis Channels — only consume risk-approved execution requests, never raw trade_signals
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe("trade_signals", "market_data")
-    logger.info("Execution mode=paper. Listening for signals...")
+    await pubsub.subscribe("execution_requests", "market_data")
+    logger.info("Execution mode=paper. Listening for risk-approved execution requests...")
 
     last_publish_at = 0.0
     current_prices = {} # symbol -> price
@@ -307,12 +306,12 @@ async def run_paper_execution(redis_client):
                     await publish_portfolios(redis_client, manager)
                     last_publish_at = now
                 
-            elif channel == "trade_signals":
-                # 1. Received Signal
-                logger.info(f"Received Signal: {payload}")
+            elif channel == "execution_requests":
+                # 1. Received risk-approved execution request
+                logger.info(f"Received execution request: {payload}")
                 symbol = payload.get("symbol")
                 price = current_prices.get(symbol, 0.0)
-                
+
                 # 2. Simulate Execution (Broker Step) with Async Latency
                 fill = await simulate_fill(payload, price, manager)
                 
