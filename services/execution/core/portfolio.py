@@ -14,6 +14,11 @@ class VirtualPortfolio:
         self.positions: Dict[str, Dict] = {} # { "AAPL": { "qty": 10, "avg_price": 150.0 } }
         self.equity_curve: List[Dict] = [] # [{ "timestamp": "...", "equity": 100000.0 }]
         self.history: List[Dict] = [] # Trade history
+        # Performance tracking
+        self.trades: int = 0
+        self.closed_trades: int = 0
+        self.wins: int = 0
+        self.realized_pnl: float = 0.0
 
     @property
     def total_equity(self) -> float:
@@ -64,10 +69,18 @@ class VirtualPortfolio:
         # Update Positions
         if symbol not in self.positions:
             self.positions[symbol] = {"qty": 0, "avg_price": 0.0}
-        
+
         current_pos = self.positions[symbol]
         new_qty = current_pos['qty'] + signed_qty
-        
+
+        realized = 0.0
+        if side == 'sell' and current_pos['qty'] > 0:
+            realized = (price - current_pos['avg_price']) * abs(signed_qty)
+            self.realized_pnl += realized
+            self.closed_trades += 1
+            if realized > 0:
+                self.wins += 1
+
         if new_qty == 0:
             del self.positions[symbol]
         else:
@@ -75,9 +88,11 @@ class VirtualPortfolio:
             if side == 'buy':
                 total_cost = (current_pos['qty'] * current_pos['avg_price']) + cost
                 current_pos['avg_price'] = total_cost / new_qty
-            
+
             current_pos['qty'] = new_qty
-            
+
+        self.trades += 1
+
         # Log Trade
         self.history.append({
             "id": str(uuid.uuid4()),
@@ -89,11 +104,23 @@ class VirtualPortfolio:
             "remaining_cash": self.cash
         })
 
-    def snapshot(self, current_prices: Dict[str, float]):
-        """Record current equity for performance tracking."""
+    def snapshot(self, current_prices: Dict[str, float]) -> Dict:
+        """Record current equity and return a rich summary dict."""
         equity = self.calculate_total_equity(current_prices)
-        self.equity_curve.append({
+        pnl = equity - self.initial_cash
+        win_rate = (self.wins / self.closed_trades * 100.0) if self.closed_trades else 0.0
+        snap = {
             "timestamp": datetime.utcnow().isoformat(),
-            "equity": equity,
-            "cash": self.cash
-        })
+            "equity": round(equity, 2),
+            "cash": round(self.cash, 2),
+            "pnl": round(pnl, 2),
+            "pnl_pct": round((pnl / self.initial_cash) * 100.0, 2),
+            "realized_pnl": round(self.realized_pnl, 2),
+            "trades": self.trades,
+            "closed_trades": self.closed_trades,
+            "wins": self.wins,
+            "win_rate": round(win_rate, 2),
+            "open_positions": len(self.positions),
+        }
+        self.equity_curve.append(snap)
+        return snap

@@ -37,12 +37,16 @@ latency_sim = LatencySimulator()
 
 # --- Helper Functions for Paper Execution ---
 
-async def simulate_fill(execution_req: Dict, current_price: float, manager: PortfolioManager) -> Optional[Dict]:
+async def simulate_fill(execution_req: Dict, current_price: float, manager: PortfolioManager, kill_switch_active: bool = False) -> Optional[Dict]:
     """
     Simulates a trade execution for paper mode.
     Expects an execution_requests payload (risk-approved) with pre-calculated qty.
     Returns a Fill Event dictionary if successful, None otherwise.
     """
+    if kill_switch_active:
+        logger.warning("Paper fill rejected — kill switch is active.")
+        return None
+
     model_id = execution_req.get("model_id", "default_model")
     # Risk service publishes side as lowercase "buy"/"sell"
     side = execution_req.get("side", "").upper()
@@ -98,9 +102,9 @@ async def simulate_fill(execution_req: Dict, current_price: float, manager: Port
         "explanation": execution_req.get("explanation", [])
     }
 
-async def publish_portfolios(redis_client, manager: PortfolioManager):
+async def publish_portfolios(redis_client, manager: PortfolioManager, current_prices: Dict[str, float] = None):
     """Publish leaderboard/portfolio summaries to Redis."""
-    portfolios = manager.get_all_portfolios()
+    portfolios = manager.get_all_portfolios(current_prices or {})
     # Sort by equity (descending)
     portfolios.sort(key=lambda x: x['equity'], reverse=True)
     
@@ -163,11 +167,36 @@ async def run_live_execution(redis_client):
     await pubsub.subscribe("execution_requests", "market_data")
     logger.info("Live execution subscribed to [execution_requests, market_data].")
 
-    async for message in pubsub.listen():
-        try:
-            if message.get("type") != "message":
-                continue
+    _HEARTBEAT_INTERVAL = 30  # seconds
+    last_heartbeat = asyncio.get_running_loop().time()
 
+    while True:
+        try:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+        except (Exception,) as conn_exc:
+            logger.error(f"Redis connection lost in live execution: {conn_exc}. Reconnecting in 5s...")
+            await asyncio.sleep(5)
+            try:
+                pubsub = redis_client.pubsub()
+                await pubsub.subscribe("execution_requests", "market_data")
+                last_heartbeat = asyncio.get_running_loop().time()
+                logger.info("Live execution reconnected to Redis.")
+            except Exception as reconnect_exc:
+                logger.error(f"Reconnect failed: {reconnect_exc}")
+            continue
+
+        now_hb = asyncio.get_running_loop().time()
+        if now_hb - last_heartbeat >= _HEARTBEAT_INTERVAL:
+            try:
+                await redis_client.ping()
+            except Exception:
+                pass
+            last_heartbeat = now_hb
+
+        if message is None:
+            continue
+
+        try:
             channel = message.get("channel", b"")
             if isinstance(channel, bytes):
                 channel = channel.decode("utf-8")
@@ -271,28 +300,30 @@ async def run_live_execution(redis_client):
 
 async def run_paper_execution(redis_client):
     manager = PortfolioManager()
-    
+
     # Configuration
     starting_cash = float(os.getenv("PAPER_STARTING_CASH", "100000"))
     publish_interval = float(os.getenv("PAPER_PORTFOLIO_PUBLISH_SECONDS", "2"))
-    
-    # Redis Channels — only consume risk-approved execution requests, never raw trade_signals
+
+    # Redis Channels — consume risk-approved requests, market data, and risk commands
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe("execution_requests", "market_data")
+    await pubsub.subscribe("execution_requests", "market_data", "risk_commands")
     logger.info("Execution mode=paper. Listening for risk-approved execution requests...")
 
     last_publish_at = 0.0
-    current_prices = {} # symbol -> price
+    current_prices: Dict[str, float] = {}
+    kill_switch_active = False
 
-    async for message in pubsub.listen():
+    while True:
         try:
-            if message.get("type") != "message":
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message is None:
                 continue
 
             channel = message.get("channel")
             if isinstance(channel, bytes):
                 channel = channel.decode("utf-8")
-            
+
             payload = json.loads(message["data"])
             now = asyncio.get_running_loop().time()
 
@@ -300,12 +331,21 @@ async def run_paper_execution(redis_client):
                 # Update internal price cache
                 if payload.get("type") == "trade":
                     current_prices[payload["symbol"]] = float(payload["price"])
-                
+
                 # Periodically publish portfolio updates
                 if (now - last_publish_at) >= publish_interval:
-                    await publish_portfolios(redis_client, manager)
+                    await publish_portfolios(redis_client, manager, current_prices)
                     last_publish_at = now
-                
+
+            elif channel == "risk_commands":
+                command = payload.get("command")
+                if command == "LIQUIDATE_ALL":
+                    kill_switch_active = True
+                    logger.warning(f"Kill switch activated via risk_commands: {payload.get('reason')}")
+                elif command in ("RESET_KILL_SWITCH", "RESUME_TRADING"):
+                    kill_switch_active = False
+                    logger.info("Kill switch cleared via risk_commands.")
+
             elif channel == "execution_requests":
                 # 1. Received risk-approved execution request
                 logger.info(f"Received execution request: {payload}")
@@ -313,17 +353,17 @@ async def run_paper_execution(redis_client):
                 price = current_prices.get(symbol, 0.0)
 
                 # 2. Simulate Execution (Broker Step) with Async Latency
-                fill = await simulate_fill(payload, price, manager)
-                
+                fill = await simulate_fill(payload, price, manager, kill_switch_active)
+
                 if fill:
-                    # 3. Update Portfolio (Legder Step)
+                    # 3. Update Portfolio (Ledger Step)
                     manager.on_execution_fill(fill)
-                    
+
                     # 4. Publish Fill Event (for Dashboard/Logs)
                     await redis_client.publish("execution_filled", json.dumps(fill))
                     logger.info(f"Executed ({fill['slippage']}): {fill['side']} {fill['qty']} {fill['symbol']} @ {fill['price']}")
 
-        except Exception as exc:
+        except (Exception,) as exc:
             logger.error(f"Error in paper execution loop: {exc}")
 
 async def main():

@@ -1,4 +1,5 @@
 import logging
+import os
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
@@ -21,19 +22,39 @@ class LightGBMStrategy(Strategy):
         self.model = None
         self.explainer = None
         # Rolling window for feature calculation (need ~50 bars for indicators)
-        self.bars = deque(maxlen=200) 
-        self.min_bars = 60 # Min bars needed to calc features
-        
+        self.bars = deque(maxlen=200)
+        self.min_bars = 60  # Min bars needed to calc features
+
         # Hyperparams
         self.confidence_threshold = config.get("confidence_threshold", 0.6)
-        
-        # Train on startup? For MVP, yes.
-        # In prod, load saved model.
-        self._train_mock_model()
+
+        # Model path from env (empty string = no checkpoint)
+        self.model_path = config.get("model_path") or os.getenv("LIGHTGBM_MODEL_PATH", "")
+
+        if self.model_path and os.path.isfile(self.model_path):
+            self._load_model(self.model_path)
+        else:
+            if self.model_path:
+                logger.warning(
+                    f"LightGBM checkpoint not found at '{self.model_path}'. "
+                    "Falling back to synthetic training — signals will be noisy."
+                )
+            self._train_mock_model()
+
+    def _load_model(self, path: str):
+        """Load a previously saved LightGBM booster from disk."""
+        try:
+            self.model = lgb.Booster(model_file=path)
+            self.explainer = shap.TreeExplainer(self.model)
+            logger.info(f"LightGBM model loaded from '{path}'.")
+        except Exception as exc:
+            logger.error(f"Failed to load LightGBM model from '{path}': {exc}. Training synthetic fallback.")
+            self._train_mock_model()
 
     def _train_mock_model(self):
         """
         Trains a quick model on synthetic data to ensure mechanics work.
+        Saves the trained model to model_path if configured.
         """
         logger.info("Training initial LightGBM model on synthetic data...")
         # Generate dummy data
@@ -45,7 +66,7 @@ class LightGBMStrategy(Strategy):
             'volume': np.random.rand(1000) * 1000
         }
         df = pd.DataFrame(data)
-        
+
         # Features
         X = self.fe.calculate_features(df)
         if X.empty:
@@ -54,11 +75,11 @@ class LightGBMStrategy(Strategy):
 
         # Target: 1 if next return > 0, else 0
         y = (X['close'].shift(-1) > X['close']).astype(int)
-        
+
         # Align X and y
         X = X.iloc[:-1]
         y = y.iloc[:-1]
-        
+
         # Train
         train_data = lgb.Dataset(X, label=y)
         params = {
@@ -68,9 +89,17 @@ class LightGBMStrategy(Strategy):
             'boosting_type': 'gbdt'
         }
         self.model = lgb.train(params, train_data, num_boost_round=50)
-        
-        # Initialize Explainer
-        # TreeExplainer is optimized for trees
+
+        # Persist so next startup skips synthetic training
+        if self.model_path:
+            try:
+                os.makedirs(os.path.dirname(self.model_path) or ".", exist_ok=True)
+                self.model.save_model(self.model_path)
+                logger.info(f"LightGBM model saved to '{self.model_path}'.")
+            except Exception as exc:
+                logger.warning(f"Could not save LightGBM model: {exc}")
+
+        # Initialize Explainer — TreeExplainer is optimized for trees
         self.explainer = shap.TreeExplainer(self.model)
         logger.info("LightGBM Model Trained & Explainer Initialized.")
 

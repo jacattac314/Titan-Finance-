@@ -66,14 +66,44 @@ async def main():
         return
 
     signals_processed = 0
+    # Track open entry prices: "{model_id}:{symbol}" -> avg_entry_price
+    _open_entries: dict = {}
+
+    _HEARTBEAT_INTERVAL = 30  # seconds
+    last_heartbeat = asyncio.get_running_loop().time()
 
     logger.info("RiskGuardian listening for events...")
 
-    async for message in pubsub.listen():
+    while True:
+        # --- Poll for next message (non-blocking with 1s timeout) ---
         try:
-            if message["type"] != "message":
-                continue
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+        except (redis.ConnectionError, redis.TimeoutError, OSError) as conn_exc:
+            logger.error(f"Redis connection lost in RiskGuardian: {conn_exc}. Reconnecting in 5s...")
+            await asyncio.sleep(5)
+            try:
+                r = redis.from_url(f"redis://{redis_host}:6379")
+                pubsub = r.pubsub()
+                await pubsub.subscribe("trade_signals", "execution_filled")
+                last_heartbeat = asyncio.get_running_loop().time()
+                logger.info("RiskGuardian reconnected to Redis.")
+            except Exception as reconnect_exc:
+                logger.error(f"Reconnect failed: {reconnect_exc}")
+            continue
 
+        # --- Periodic heartbeat ---
+        now_ts = asyncio.get_running_loop().time()
+        if now_ts - last_heartbeat >= _HEARTBEAT_INTERVAL:
+            try:
+                await r.ping()
+            except Exception:
+                pass
+            last_heartbeat = now_ts
+
+        if message is None:
+            continue
+
+        try:
             channel = message.get("channel", b"")
             if isinstance(channel, bytes):
                 channel = channel.decode("utf-8")
@@ -84,16 +114,22 @@ async def main():
             # execution_filled: record trade result for model-performance tracking
             # ----------------------------------------------------------------
             if channel == "execution_filled":
-                # Infer a simple trade return from slippage/price for rolling Sharpe
                 price = float(data.get("price", 0) or 0)
-                slippage = float(data.get("slippage", 0) or 0)
                 side = data.get("side", "BUY").upper()
+                model_id = data.get("model_id", "unknown")
+                symbol = data.get("symbol", "")
+                key = f"{model_id}:{symbol}"
 
                 if price > 0:
-                    raw_return = -slippage / price  # negative slippage = cost
-                    correct_direction = raw_return >= 0 if side == "BUY" else raw_return <= 0
-                    engine.record_trade_result(raw_return)
-                    engine.record_prediction(correct_direction, raw_return)
+                    if side == "BUY":
+                        # Record entry; P&L is realized on the paired SELL
+                        _open_entries[key] = price
+                    elif side == "SELL" and key in _open_entries:
+                        entry_price = _open_entries.pop(key)
+                        raw_return = (price - entry_price) / entry_price
+                        correct_direction = raw_return > 0
+                        engine.record_trade_result(raw_return)
+                        engine.record_prediction(correct_direction, raw_return)
                 continue
 
             # ----------------------------------------------------------------

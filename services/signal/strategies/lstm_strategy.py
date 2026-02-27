@@ -1,4 +1,5 @@
 import logging
+import os
 import asyncio
 import numpy as np
 import pandas as pd
@@ -32,9 +33,23 @@ class LSTMStrategy(Strategy):
         
         # Model
         self.model = LSTMModel(input_size=14, hidden_size=64, num_layers=2)
+        self.model_path = config.get("model_path") or os.getenv("LSTM_MODEL_PATH", "")
+        if self.model_path and os.path.isfile(self.model_path):
+            try:
+                self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+                logger.info(f"LSTM weights loaded from '{self.model_path}'.")
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to load LSTM weights from '{self.model_path}': {exc}. "
+                    "Using random initialization — signals will be noisy."
+                )
+        else:
+            if self.model_path:
+                logger.warning(
+                    f"LSTM checkpoint not found at '{self.model_path}'. "
+                    "Using random initialization — signals will be noisy."
+                )
         self.model.eval()
-        # In a real scenario, we would load weights here:
-        # self.model.load_state_dict(torch.load("lstm_weights.pth"))
         logger.info(f"Initialized LSTM Strategy for {self.symbol}. Waiting for {self.warmup_period} bars.")
 
     async def on_tick(self, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -87,11 +102,13 @@ class LSTMStrategy(Strategy):
         cols = ['open', 'high', 'low', 'close', 'volume', 'RSI', 'MACD', 'MACD_line', 'MACD_signal', 'log_ret', 'ATR', 'BBU', 'BBL', 'BBM']
         # Check if we have all columns
         available_cols = [c for c in cols if c in df.columns]
-        
+
         if len(available_cols) < 14:
-             # Padding if missing? Or just select what we have. 
-             # For MVP let's expect strict match or slice.
-             pass
+            logger.warning(
+                f"LSTM [{self.symbol}]: expected 14 features, got {len(available_cols)} "
+                f"(missing: {set(cols) - set(available_cols)}). Skipping signal."
+            )
+            return None
 
         recent_data = df[available_cols].iloc[-self.lookback:].values
         

@@ -1,4 +1,5 @@
 import logging
+import os
 import asyncio
 import numpy as np
 import pandas as pd
@@ -31,8 +32,24 @@ class TFTStrategy(Strategy):
         
         # Model
         self.model = TFTModel(input_size=14, d_model=64, num_layers=2, output_horizon=self.output_horizon)
+        self.model_path = config.get("model_path") or os.getenv("TFT_MODEL_PATH", "")
+        if self.model_path and os.path.isfile(self.model_path):
+            try:
+                self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+                logger.info(f"TFT weights loaded from '{self.model_path}'.")
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to load TFT weights from '{self.model_path}': {exc}. "
+                    "Using random initialization — signals will be noisy."
+                )
+        else:
+            if self.model_path:
+                logger.warning(
+                    f"TFT checkpoint not found at '{self.model_path}'. "
+                    "Using random initialization — signals will be noisy."
+                )
         self.model.eval()
-        
+
         logger.info(f"Initialized TFT Strategy for {self.symbol}. Waiting for {self.warmup_period} bars.")
 
     async def on_tick(self, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -60,9 +77,14 @@ class TFTStrategy(Strategy):
 
         # Prepare Input
         cols = ['open', 'high', 'low', 'close', 'volume', 'RSI', 'MACD', 'MACD_line', 'MACD_signal', 'log_ret', 'ATR', 'BBU', 'BBL', 'BBM']
-        # Select available columns (expecting all 14)
         available_cols = [c for c in cols if c in df.columns]
-        recent_data = df[available_cols].iloc[-self.lookback:].values # [60, 14]
+        if len(available_cols) < 14:
+            logger.warning(
+                f"TFT [{self.symbol}]: expected 14 features, got {len(available_cols)} "
+                f"(missing: {set(cols) - set(available_cols)}). Skipping signal."
+            )
+            return None
+        recent_data = df[available_cols].iloc[-self.lookback:].values  # [60, 14]
         
         # Scale
         mean = np.mean(recent_data, axis=0)
