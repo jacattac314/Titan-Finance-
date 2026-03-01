@@ -98,15 +98,15 @@ async def simulate_fill(execution_req: Dict, current_price: float, manager: Port
         "explanation": execution_req.get("explanation", [])
     }
 
-async def publish_portfolios(redis_client, manager: PortfolioManager):
+async def publish_portfolios(redis_client, manager: PortfolioManager, current_prices: Dict[str, float] = None):
     """Publish leaderboard/portfolio summaries to Redis."""
-    portfolios = manager.get_all_portfolios()
+    portfolios = manager.get_all_portfolios(current_prices)
     # Sort by equity (descending)
     portfolios.sort(key=lambda x: x['equity'], reverse=True)
     
     payload = {
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "best_model": portfolios[0]["id"] if portfolios else None,
+        "best_model": portfolios[0]["model_id"] if portfolios else None,
         "models": portfolios,
         "mode": "paper",
     }
@@ -303,7 +303,7 @@ async def run_paper_execution(redis_client):
                 
                 # Periodically publish portfolio updates
                 if (now - last_publish_at) >= publish_interval:
-                    await publish_portfolios(redis_client, manager)
+                    await publish_portfolios(redis_client, manager, current_prices)
                     last_publish_at = now
                 
             elif channel == "execution_requests":
@@ -317,9 +317,20 @@ async def run_paper_execution(redis_client):
                 
                 if fill:
                     # 3. Update Portfolio (Legder Step)
-                    manager.on_execution_fill(fill)
+                    realized_pnl = manager.on_execution_fill(fill)
                     
-                    # 4. Publish Fill Event (for Dashboard/Logs)
+                    # 4. Add additional data to fill event for the dashboard
+                    fill['realized_pnl'] = realized_pnl
+                    
+                    name_map = {
+                        "tft_model_01": "TFT Transformer",
+                        "lstm_model_01": "LSTM DeepNet",
+                        "lightgbm_01": "LightGBM Quant",
+                        "sma_cross": "SMA Crossover"
+                    }
+                    fill['model_name'] = name_map.get(fill.get('model_id', ''), str(fill.get('model_id', '')).replace("_", " ").title())
+                    
+                    # 5. Publish Fill Event (for Dashboard/Logs)
                     await redis_client.publish("execution_filled", json.dumps(fill))
                     logger.info(f"Executed ({fill['slippage']}): {fill['side']} {fill['qty']} {fill['symbol']} @ {fill['price']}")
 

@@ -156,12 +156,15 @@ function makeId(prefix: string): string {
 }
 
 function formatSignalExplanation(explanation: SignalEventPayload["explanation"]): string[] {
-  if (!explanation || explanation.length === 0) {
+  if (!explanation || !Array.isArray(explanation) || explanation.length === 0) {
     return [];
   }
-  return explanation.map((item) => {
-    const feature = item.feature ?? "feature";
-    const impact = Number(item.impact ?? 0);
+  return explanation.map((item: any) => {
+    if (typeof item === "string") {
+      return item;
+    }
+    const feature = item?.feature ?? "feature";
+    const impact = Number(item?.impact ?? 0);
     return `${feature} (${impact.toFixed(2)})`;
   });
 }
@@ -600,7 +603,8 @@ export default function DashboardShell() {
   }, [leaderboardRows, signals, trades]);
 
   const rangeCutoff = useMemo(() => clock - RANGE_MS[filters.timeRange], [clock, filters.timeRange]);
-  const chartSymbol = filters.symbol === "ALL" ? availableSymbols[0] || "SPY" : filters.symbol;
+  const defaultSymbol = availableSymbols.includes("SPY") ? "SPY" : (availableSymbols[0] || "SPY");
+  const chartSymbol = filters.symbol === "ALL" ? defaultSymbol : filters.symbol;
 
   const filteredSignals = useMemo(
     () =>
@@ -716,8 +720,8 @@ export default function DashboardShell() {
           </div>
 
           <div className="glass-card flex-1 p-4 min-h-[300px]">
-            <h2 className="text-lg font-semibold mb-4">Recent Executions</h2>
-            <TradeLog trades={filteredTrades.slice(0, 120)} />
+            <h2 className="text-lg font-semibold mb-4 text-white/90">Recent Executions (Max 50)</h2>
+            <TradeLog trades={filteredTrades.slice(0, 50)} />
           </div>
         </div>
       </div>

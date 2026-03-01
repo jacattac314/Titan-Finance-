@@ -1,0 +1,8 @@
+#! 0-titan-finance--namespace.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-

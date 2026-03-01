@@ -44,9 +44,10 @@ class VirtualPortfolio:
             return self.cash >= cost
         return True # Selling adds cash (presumed)
 
-    def update_from_fill(self, fill_event: Dict):
+    def update_from_fill(self, fill_event: Dict) -> float:
         """
         Updates portfolio state based on a trade execution.
+        Returns the realized PnL of the fill event (if any).
         fill_event: { "symbol": "AAPL", "qty": 10, "price": 150.0, "side": "buy", "timestamp": ... }
         """
         symbol = fill_event['symbol']
@@ -58,6 +59,8 @@ class VirtualPortfolio:
         signed_qty = qty if side == 'buy' else -qty
         cost = signed_qty * price
 
+        realized_pnl = 0.0
+
         # Update Cash
         self.cash -= cost
 
@@ -66,10 +69,18 @@ class VirtualPortfolio:
             self.positions[symbol] = {"qty": 0, "avg_price": 0.0}
         
         current_pos = self.positions[symbol]
+        
+        if side == 'sell' and current_pos['qty'] > 0:
+            # Calculate realized PnL: (Exit Price - Entry Price) * qty sold
+            # We assume we don't sell more than we have for now, or if we do, it's just closing the long.
+            qty_sold = min(qty, current_pos['qty'])
+            realized_pnl = (price - current_pos['avg_price']) * qty_sold
+
         new_qty = current_pos['qty'] + signed_qty
         
-        if new_qty == 0:
-            del self.positions[symbol]
+        if new_qty <= 0:
+            if symbol in self.positions:
+                del self.positions[symbol]
         else:
             # Update avg price if buying
             if side == 'buy':
@@ -86,8 +97,11 @@ class VirtualPortfolio:
             "side": side,
             "qty": abs(signed_qty),
             "price": price,
-            "remaining_cash": self.cash
+            "remaining_cash": self.cash,
+            "realized_pnl": realized_pnl
         })
+        
+        return realized_pnl
 
     def snapshot(self, current_prices: Dict[str, float]):
         """Record current equity for performance tracking."""

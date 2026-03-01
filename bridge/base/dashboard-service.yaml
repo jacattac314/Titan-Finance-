@@ -1,0 +1,23 @@
+# check if there is at least one published port
+
+#! dashboard-service.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Service
+metadata:
+    name: dashboard-published
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: dashboard
+spec:
+    selector:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: dashboard
+    ports:
+        - name: dashboard-3000
+          port: 3000
+          protocol: TCP
+          targetPort: dashboard-3000
+
+# check if there is at least one published port

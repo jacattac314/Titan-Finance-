@@ -2,6 +2,7 @@
 
 import { Cpu, ShieldAlert } from "lucide-react";
 import { SystemStatus } from "@/components/dashboard/types";
+import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   status: SystemStatus;
@@ -24,8 +25,8 @@ function formatLastUpdate(value: number | null): string {
 
 export default function Header({ status }: HeaderProps) {
   return (
-    <header className="border-b border-white/10 bg-background/80 backdrop-blur-md px-6 py-3 sticky top-0 z-50 space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <header className="border-b border-white/5 bg-slate-950/60 backdrop-blur-xl px-6 py-3 sticky top-0 z-50 space-y-3 relative before:absolute before:inset-x-0 before:bottom-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-white/20 before:to-transparent">
+      <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/20">
             <Cpu className="w-5 h-5 text-white" />
@@ -41,26 +42,32 @@ export default function Header({ status }: HeaderProps) {
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-xs">
-        <div className="flex items-center gap-2 bg-secondary/30 px-3 py-1.5 rounded-full border border-white/5">
-          <span className={`w-2 h-2 rounded-full ${dotClass(status.marketFeedConnected)}`} />
+      <div className="flex flex-wrap gap-2 text-[11px] font-medium tracking-wide uppercase relative z-10">
+        <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 rounded-full border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] text-slate-300">
+          <span className={`relative flex h-2 w-2`}>
+            {status.marketFeedConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${dotClass(status.marketFeedConnected)}`}></span>
+          </span>
           Market Feed
         </div>
-        <div className="flex items-center gap-2 bg-secondary/30 px-3 py-1.5 rounded-full border border-white/5">
-          <span className={`w-2 h-2 rounded-full ${dotClass(status.redisConnected)}`} />
+        <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 rounded-full border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] text-slate-300">
+          <span className={`relative flex h-2 w-2`}>
+            {status.redisConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${dotClass(status.redisConnected)}`}></span>
+          </span>
           Redis
         </div>
-        <div className="bg-secondary/30 px-3 py-1.5 rounded-full border border-white/5 text-muted-foreground">
-          Mode: <span className="text-cyan-300 font-semibold uppercase">{status.executionMode}</span>
+        <div className="bg-slate-900/50 px-3 py-1.5 rounded-full border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] text-slate-400">
+          Mode: <span className="text-cyan-400 font-bold ml-1">{status.executionMode}</span>
         </div>
-        <div className="bg-secondary/30 px-3 py-1.5 rounded-full border border-white/5 text-muted-foreground">
-          Last Update: <span className="text-white">{formatLastUpdate(status.lastUpdate)}</span>
+        <div className="bg-slate-900/50 px-3 py-1.5 rounded-full border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] text-slate-400">
+          Sync: <span className="text-white ml-1">{formatLastUpdate(status.lastUpdate)}</span>
         </div>
-        <div className="bg-secondary/30 px-3 py-1.5 rounded-full border border-white/5 text-muted-foreground">
-          Latency: <span className="text-white">{status.latencyMs !== null ? `${status.latencyMs} ms` : "--"}</span>
+        <div className="bg-slate-900/50 px-3 py-1.5 rounded-full border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] text-slate-400">
+          Ping: <span className="text-white ml-1">{status.latencyMs !== null ? `${status.latencyMs} ms` : "--"}</span>
         </div>
-        <div className="bg-secondary/30 px-3 py-1.5 rounded-full border border-white/5 text-muted-foreground">
-          Socket: <span className={status.socketConnected ? "text-emerald-400" : "text-rose-400"}>{status.socketConnected ? "Connected" : "Disconnected"}</span>
+        <div className="bg-slate-900/50 px-3 py-1.5 rounded-full border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] text-slate-400">
+          Socket: <span className={cn("ml-1 font-bold", status.socketConnected ? "text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "text-rose-400")}>{status.socketConnected ? "Stable" : "Lost"}</span>
         </div>
       </div>
     </header>

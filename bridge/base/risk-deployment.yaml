@@ -1,0 +1,35 @@
+#! risk-deployment.yaml
+# Generated code, do not edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: risk
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: risk
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            com.docker.compose.project: titan-finance-
+            com.docker.compose.service: risk
+    strategy:
+        type: Recreate
+    template:
+        metadata:
+            labels:
+                com.docker.compose.project: titan-finance-
+                com.docker.compose.service: risk
+                com.docker.compose.network.titan_net: "true"
+        spec:
+            restartPolicy: unless-stopped
+            containers:
+                - name: titan-risk
+                  image: titan-finance--risk
+                  imagePullPolicy: IfNotPresent
+                  env:
+                    - name: REDIS_HOST
+                      value: "redis"
+                    - name: RISK_MAX_DAILY_LOSS
+                      value: "0.03"

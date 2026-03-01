@@ -1,0 +1,18 @@
+#! dashboard-expose.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Service
+metadata:
+    name: dashboard
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: dashboard
+spec:
+    selector:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: dashboard
+    ports:
+        - name: dashboard-3000
+          port: 3000
+          targetPort: dashboard-3000

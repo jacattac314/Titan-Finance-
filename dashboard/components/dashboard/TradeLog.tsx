@@ -61,19 +61,20 @@ export default function TradeLog({ trades }: TradeLogProps) {
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-muted-foreground uppercase bg-white/5">
+      <div className="overflow-x-auto rounded-xl border border-white/5 bg-slate-900/30 backdrop-blur-sm shadow-xl relative">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>
+        <table className="w-full text-[11px] text-left relative z-10">
+          <thead className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase bg-black/40 border-b border-white/10">
             <tr>
-              <th className="px-4 py-3 rounded-tl-lg">Time</th>
-              <th className="px-4 py-3">Sym</th>
-              <th className="px-4 py-3">Side</th>
-              <th className="px-4 py-3">Strategy / Model</th>
-              <th className="px-4 py-3">Qty</th>
-              <th className="px-4 py-3">Price</th>
-              <th className="px-4 py-3">PnL</th>
-              <th className="px-4 py-3">Insight</th>
-              <th className="px-4 py-3 rounded-tr-lg">Status</th>
+              <th className="px-5 py-3.5">Time</th>
+              <th className="px-5 py-3.5">Sym</th>
+              <th className="px-5 py-3.5">Side</th>
+              <th className="px-5 py-3.5">Strategy / Model</th>
+              <th className="px-5 py-3.5">Qty</th>
+              <th className="px-5 py-3.5">Price</th>
+              <th className="px-5 py-3.5">PnL</th>
+              <th className="px-5 py-3.5">Insight</th>
+              <th className="px-5 py-3.5">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -85,20 +86,23 @@ export default function TradeLog({ trades }: TradeLogProps) {
               </tr>
             )}
             {trades.map((trade) => (
-              <tr key={trade.id} className="hover:bg-white/5 transition-colors group">
-                <td className="px-4 py-3 font-mono text-xs text-zinc-400">{formatTime(trade.timestamp)}</td>
-                <td className="px-4 py-3 font-semibold text-white">{trade.symbol}</td>
-                <td className={`px-4 py-3 font-bold ${trade.side.toUpperCase() === 'BUY' ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <tr key={trade.id} className="hover:bg-cyan-950/20 transition-all duration-200 group relative">
+                <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <td className="px-5 py-3 font-mono text-slate-400 group-hover:text-slate-300 transition-colors">{formatTime(trade.timestamp)}</td>
+                <td className="px-5 py-3 font-bold text-white tracking-wide">{trade.symbol}</td>
+                <td className={`px-5 py-3 font-extrabold tracking-wider ${trade.side.toUpperCase() === 'BUY' ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.3)]'}`}>
                   {trade.side}
                 </td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-1 rounded text-[10px] font-medium border ${getModelBadge(trade.modelId)}`}>
+                <td className="px-5 py-3">
+                  <span className={`px-2.5 py-1 rounded-md text-[10px] uppercase font-bold tracking-wider border shadow-sm ${getModelBadge(trade.modelId)}`}>
                     {trade.modelName}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-zinc-300">{trade.qty}</td>
-                <td className="px-4 py-3 font-mono text-zinc-300">${Number(trade.price ?? 0) > 0 ? Number(trade.price ?? 0).toFixed(2) : '-'}</td>
-                <td className={`px-4 py-3 font-mono ${trade.realizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                <td className="px-5 py-3 text-slate-300 font-medium">{trade.qty}</td>
+                <td className="px-5 py-3 font-mono text-slate-200 group-hover:text-white transition-colors">
+                  ${Number(trade.price ?? 0) > 0 ? Number(trade.price ?? 0).toFixed(2) : '-'}
+                </td>
+                <td className={`px-5 py-3 font-mono font-semibold ${trade.realizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {Number(trade.realizedPnl ?? 0) === 0 ? '-' : `${Number(trade.realizedPnl ?? 0) > 0 ? '+' : ''}$${Number(trade.realizedPnl ?? 0).toFixed(2)}`}
                 </td>
                 <td className="px-4 py-3">

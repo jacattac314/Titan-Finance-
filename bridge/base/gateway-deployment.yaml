@@ -1,0 +1,49 @@
+#! gateway-deployment.yaml
+# Generated code, do not edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: gateway
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: gateway
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            com.docker.compose.project: titan-finance-
+            com.docker.compose.service: gateway
+    strategy:
+        type: Recreate
+    template:
+        metadata:
+            labels:
+                com.docker.compose.project: titan-finance-
+                com.docker.compose.service: gateway
+                com.docker.compose.network.titan_net: "true"
+        spec:
+            restartPolicy: unless-stopped
+            containers:
+                - name: titan-gateway
+                  image: titan-finance--gateway
+                  imagePullPolicy: IfNotPresent
+                  env:
+                    - name: ALPACA_API_KEY
+                      value: "PK_PLACEHOLDER"
+                    - name: ALPACA_SECRET_KEY
+                      value: "SK_PLACEHOLDER"
+                    - name: DATA_PROVIDER
+                      value: "synthetic"
+                    - name: POSTGRES_DB
+                      value: "titan_db"
+                    - name: POSTGRES_HOST
+                      value: "postgres"
+                    - name: POSTGRES_PASSWORD
+                      value: "titan_password"
+                    - name: POSTGRES_USER
+                      value: "titan_user"
+                    - name: QUESTDB_HOST
+                      value: "questdb"
+                    - name: REDIS_HOST
+                      value: "redis"

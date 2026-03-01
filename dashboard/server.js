@@ -28,6 +28,7 @@ async function connectRedisWithFallback() {
         const client = createClient({
             url,
             socket: {
+                family: 4, // Force IPv4 resolution to fix Node.js Docker DNS timeouts
                 connectTimeout: 3000,
                 reconnectStrategy: (retries) => {
                     if (retries > 5) {

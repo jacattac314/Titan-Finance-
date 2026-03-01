@@ -1,0 +1,43 @@
+#! signal-deployment.yaml
+# Generated code, do not edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: signal
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: signal
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            com.docker.compose.project: titan-finance-
+            com.docker.compose.service: signal
+    strategy:
+        type: Recreate
+    template:
+        metadata:
+            labels:
+                com.docker.compose.project: titan-finance-
+                com.docker.compose.service: signal
+                com.docker.compose.network.titan_net: "true"
+        spec:
+            restartPolicy: unless-stopped
+            containers:
+                - name: titan-signal
+                  image: titan-finance--signal
+                  imagePullPolicy: IfNotPresent
+                  env:
+                    - name: POSTGRES_DB
+                      value: "titan_db"
+                    - name: POSTGRES_HOST
+                      value: "postgres"
+                    - name: POSTGRES_PASSWORD
+                      value: "titan_password"
+                    - name: POSTGRES_USER
+                      value: "titan_user"
+                    - name: QUESTDB_HOST
+                      value: "questdb"
+                    - name: REDIS_HOST
+                      value: "redis"

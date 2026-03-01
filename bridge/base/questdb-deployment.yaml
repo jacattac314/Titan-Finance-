@@ -1,0 +1,43 @@
+#! questdb-deployment.yaml
+# Generated code, do not edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: questdb
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: questdb
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            com.docker.compose.project: titan-finance-
+            com.docker.compose.service: questdb
+    strategy:
+        type: Recreate
+    template:
+        metadata:
+            labels:
+                com.docker.compose.project: titan-finance-
+                com.docker.compose.service: questdb
+                com.docker.compose.network.titan_net: "true"
+        spec:
+            containers:
+                - name: titan-questdb
+                  image: questdb/questdb:latest
+                  imagePullPolicy: IfNotPresent
+                  ports:
+                    - name: questdb-8812
+                      containerPort: 8812
+                    - name: questdb-9000
+                      containerPort: 9000
+                    - name: questdb-9009
+                      containerPort: 9009
+                  volumeMounts:
+                    - name: root--questdb-db
+                      mountPath: /root/.questdb/db
+            volumes:
+                - name: root--questdb-db
+                  persistentVolumeClaim:
+                    claimName: questdb-questdb-data

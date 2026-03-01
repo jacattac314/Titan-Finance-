@@ -1,0 +1,57 @@
+#! execution-deployment.yaml
+# Generated code, do not edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: execution
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: execution
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            com.docker.compose.project: titan-finance-
+            com.docker.compose.service: execution
+    strategy:
+        type: Recreate
+    template:
+        metadata:
+            labels:
+                com.docker.compose.project: titan-finance-
+                com.docker.compose.service: execution
+                com.docker.compose.network.titan_net: "true"
+        spec:
+            restartPolicy: unless-stopped
+            containers:
+                - name: titan-execution
+                  image: titan-finance--execution
+                  imagePullPolicy: IfNotPresent
+                  env:
+                    - name: ALPACA_API_KEY
+                      value: "PK_PLACEHOLDER"
+                    - name: ALPACA_SECRET_KEY
+                      value: "SK_PLACEHOLDER"
+                    - name: EXECUTION_MODE
+                      value: "paper"
+                    - name: PAPER_MAX_MODELS
+                      value: "10"
+                    - name: PAPER_MIN_CONFIDENCE
+                      value: "0.25"
+                    - name: PAPER_PORTFOLIO_PUBLISH_SECONDS
+                      value: "2"
+                    - name: PAPER_RISK_PER_TRADE
+                      value: "0.10"
+                    - name: PAPER_STARTING_CASH
+                      value: "100000"
+                    - name: POSTGRES_DB
+                      value: "titan_db"
+                    - name: POSTGRES_HOST
+                      value: "postgres"
+                    - name: POSTGRES_PASSWORD
+                      value: "titan_password"
+                    - name: POSTGRES_USER
+                      value: "titan_user"
+                    - name: REDIS_HOST
+                      value: "redis"

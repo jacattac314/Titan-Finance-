@@ -1,0 +1,29 @@
+#! questdb-service.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Service
+metadata:
+    name: questdb-published
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: questdb
+spec:
+    selector:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: questdb
+    ports:
+        - name: questdb-9000
+          port: 9000
+          protocol: TCP
+          targetPort: questdb-9000
+        - name: questdb-9009
+          port: 9009
+          protocol: TCP
+          targetPort: questdb-9009
+        - name: questdb-8812
+          port: 8812
+          protocol: TCP
+          targetPort: questdb-8812
+
+# check if there is at least one published port

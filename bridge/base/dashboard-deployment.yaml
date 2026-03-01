@@ -1,0 +1,38 @@
+#! dashboard-deployment.yaml
+# Generated code, do not edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: dashboard
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.project: titan-finance-
+        com.docker.compose.service: dashboard
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            com.docker.compose.project: titan-finance-
+            com.docker.compose.service: dashboard
+    strategy:
+        type: Recreate
+    template:
+        metadata:
+            labels:
+                com.docker.compose.project: titan-finance-
+                com.docker.compose.service: dashboard
+                com.docker.compose.network.titan_net: "true"
+        spec:
+            restartPolicy: unless-stopped
+            containers:
+                - name: titan-dashboard
+                  image: titan-finance--dashboard
+                  imagePullPolicy: IfNotPresent
+                  env:
+                    - name: NODE_ENV
+                      value: "production"
+                    - name: REDIS_URL
+                      value: "redis://redis:6379"
+                  ports:
+                    - name: dashboard-3000
+                      containerPort: 3000

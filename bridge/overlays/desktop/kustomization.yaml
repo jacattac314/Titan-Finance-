@@ -1,0 +1,14 @@
+#! kustomization.yaml
+# Generated code, do not edit
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+    - ../../base
+patches:
+    - path: dashboard-service.yaml
+    - path: postgres-C:\Users\tjmcc\Downloads\Titan\Titan-Finance-\storage\schema-persistentVolumeClaim.yaml
+    - path: postgres-postgres_data-persistentVolumeClaim.yaml
+    - path: postgres-service.yaml
+    - path: questdb-questdb_data-persistentVolumeClaim.yaml
+    - path: questdb-service.yaml
+    - path: redis-service.yaml

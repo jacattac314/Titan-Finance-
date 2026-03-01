@@ -1,0 +1,18 @@
+#! questdb-questdb_data-persistentVolumeClaim.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: questdb-questdb-data
+    namespace: titan-finance-
+    labels:
+        com.docker.compose.service: questdb
+        com.docker.compose.volume: questdb_data
+spec:
+    accessModes:
+        # TODO would need to check which services use this volume
+        - ReadWriteOnce
+    volumeMode: Filesystem
+    resources:
+        requests:
+            storage: 100Mi
