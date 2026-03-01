@@ -20,7 +20,7 @@ class TFTStrategy(Strategy):
         super().__init__(config)
         self.lookback = config.get("lookback", 60)
         self.device = torch.device("cpu")
-        self.output_horizon = 5
+        self.output_horizon = 60  # 60 x 1-min bars = 1 hour forecast
         
         # Warmup
         self.warmup_period = 200
@@ -31,7 +31,22 @@ class TFTStrategy(Strategy):
         
         # Model
         self.model = TFTModel(input_size=14, d_model=64, num_layers=2, output_horizon=self.output_horizon)
+        
+        # Load Trained Weights
+        import os
+        self.weights_path = os.path.join(os.path.dirname(__file__), '../models/weights/tft_weights.pth')
+        
+        if os.path.exists(self.weights_path):
+            try:
+                self.model.load_state_dict(torch.load(self.weights_path, map_location=self.device, weights_only=True))
+                logger.info(f"Loaded TFT weights from {self.weights_path}.")
+            except Exception as e:
+                logger.error(f"Failed to load weights: {e}")
+        else:
+            logger.warning(f"TFT weights not found at {self.weights_path}. Running with random initialization.")
+            
         self.model.eval()
+        self.model.to(self.device)
         
         logger.info(f"Initialized TFT Strategy for {self.symbol}. Waiting for {self.warmup_period} bars.")
 
@@ -64,7 +79,7 @@ class TFTStrategy(Strategy):
         available_cols = [c for c in cols if c in df.columns]
         recent_data = df[available_cols].iloc[-self.lookback:].values # [60, 14]
         
-        # Scale
+        # Scale (using simple standardization, same as training script)
         mean = np.mean(recent_data, axis=0)
         std = np.std(recent_data, axis=0) + 1e-8
         scaled_data = (recent_data - mean) / std
@@ -74,31 +89,32 @@ class TFTStrategy(Strategy):
         # Inference
         with torch.no_grad():
             # Output is [1, 5] (predictions for next 5 steps in scaled space)
-            predictions = self.model(tensor_in).squeeze(0).numpy() # [5]
+            predictions = self.model(tensor_in).squeeze(0).cpu().numpy() # [60]
             
         # Interpret
-        # We need to see if the predicted trend is UP.
-        # Current scaled close price:
-        current_scaled_close = scaled_data[-1, 3] # Index 3 is 'close'
+        # The model was trained to predict the scaled 'close' price.
+        close_idx = available_cols.index('close')
+        current_scaled_close = scaled_data[-1, close_idx]
         
-        # Compare average forecasted 'close' (embedding includes close, but model is trained to predict something?)
-        # Wait, my TFTModel is initialized with random weights.
-        # It's outputting random garbage.
-        # But for the purpose of the pipeline verification, we treat it as a black box signal generator.
-        # We look for *relative* movement in the prediction.
-        
+        # Use the final prediction (t+60) as the 1-hour forecast
+        final_prediction_scaled = predictions[-1]
         avg_prediction = np.mean(predictions)
+        
+        # Un-scale the final prediction to get an actual price forecast
+        forecast_price = float(final_prediction_scaled * std[close_idx] + mean[close_idx])
+        forecast_timestamp = int(tick.get("timestamp", 0)) + (60 * 60 * 1000)  # +1 hour in ms
         
         # Simple Logic: If model predicts values > current scaled close + threshold
         signal = None
         confidence = 0.5
         
-        if avg_prediction > current_scaled_close + 0.1: # Threshold in z-score space
+        # 0.1 standard deviations in z-score space
+        if avg_prediction > current_scaled_close + 0.1: 
             signal = "BUY"
-            confidence = 0.7
+            confidence = min(0.5 + (avg_prediction - current_scaled_close), 0.99)
         elif avg_prediction < current_scaled_close - 0.1:
             signal = "SELL"
-            confidence = 0.7
+            confidence = min(0.5 + (current_scaled_close - avg_prediction), 0.99)
             
         if signal:
             return {
@@ -106,10 +122,12 @@ class TFTStrategy(Strategy):
                 "model_name": "TFT_Transformer_v1",
                 "symbol": self.symbol,
                 "signal": signal,
-                "confidence": confidence,
+                "confidence": round(confidence, 2),
                 "price": price,
                 "timestamp": tick.get("timestamp"),
-                "explanation": [f"Forecast_Horizon_5: {avg_prediction:.2f}"]
+                "explanation": [f"Forecast_1H_Z: {final_prediction_scaled:.2f}"],
+                "forecast_price": round(forecast_price, 2),
+                "forecast_timestamp": forecast_timestamp
             }
             
         return None

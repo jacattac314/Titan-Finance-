@@ -59,7 +59,9 @@ class TestBuyingPower:
     def test_accepts_buy_when_cash_exactly_covers_cost(self):
         v = make_validator()
         vp = make_portfolio(cash=1_000)
-        assert v.validate(vp, "AAPL", 100.0, 10, "BUY") is True
+        # If we spend all 1,000, we violate the 20% concentration limit.
+        # So spending exactly cash is rejected by rule #3 now, not rule #1.
+        assert v.validate(vp, "AAPL", 100.0, 10, "BUY") is False
 
     def test_accepts_buy_when_cash_exceeds_cost(self):
         v = make_validator()
@@ -107,19 +109,19 @@ class TestMaxOrderValue:
 class TestMaxPositionSize:
     def test_rejects_buy_that_pushes_position_over_limit(self):
         v = make_validator()
-        vp = make_portfolio(cash=100_000)
+        vp = make_portfolio(cash=100_000) # Equity = 100k + 20k = 120k. 20% of 120k = 24k
         # Existing position: 200 shares @ 100 = $20,000
         vp.positions["AAPL"] = {"qty": 200, "avg_price": 100.0}
-        # New buy: 60 shares @ 100 = $6,000 → total $26,000 > $25,000
+        # New buy: 60 shares @ 100 = $6,000 → total $26,000 > $24k limit
         assert v.validate(vp, "AAPL", 100.0, 60, "BUY") is False
 
     def test_accepts_buy_that_stays_within_position_limit(self):
         v = make_validator()
-        vp = make_portfolio(cash=100_000)
+        vp = make_portfolio(cash=100_000) # Equity = 100k + 20k = 120k. 20% = 24k
         # Existing: 200 shares @ 100 = $20,000
         vp.positions["AAPL"] = {"qty": 200, "avg_price": 100.0}
-        # New buy: 50 shares @ 100 = $5,000 → total $25,000 == limit
-        assert v.validate(vp, "AAPL", 100.0, 50, "BUY") is True
+        # New buy: 40 shares @ 100 = $4,000 → total $24,000 == limit
+        assert v.validate(vp, "AAPL", 100.0, 40, "BUY") is True
 
     def test_new_position_within_limit_accepted(self):
         v = make_validator()

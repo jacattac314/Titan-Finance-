@@ -1,5 +1,6 @@
 import random
 import logging
+import math
 
 logger = logging.getLogger("TitanSlippageModel")
 
@@ -17,13 +18,15 @@ class SlippageModel:
         if decision_price <= 0:
             return decision_price
 
-        # Random walk component (Market noise)
-        # Normal distribution, mean=0, std=1bps
-        noise = random.gauss(0, 0.0001) 
+        # Baseline noise (Normal distribution) + Volatility spike (Pareto distribution)
+        # Using Pareto allows "long-tail" high slippage events
+        normal_noise = random.gauss(0, 0.0001)
+        volatility_spike = (random.paretovariate(3.0) - 1.0) * 0.0002
+        noise = normal_noise + volatility_spike
         
-        # Impact component (simplified)
-        # Larger orders move price against you
-        impact = (qty / 10000.0) * 0.00005 # Tiny impact per share
+        # Impact component: Square Root Law of Market Impact
+        # Larger orders move price against you non-linearly
+        impact = math.sqrt(qty / 10000.0) * 0.00005 
         
         slippage_pct = noise + impact + (self.base_bps / 10000.0)
         

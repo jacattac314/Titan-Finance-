@@ -28,6 +28,7 @@ export default function MetricsGrid({ rows }: MetricsGridProps) {
         return [
             {
                 label: 'Paper PnL',
+                tooltip: 'Total simulated profit and loss across all active trading models. This is not real money.',
                 value: `${totalPnl >= 0 ? '+' : '-'}$${Math.abs(totalPnl).toFixed(2)}`,
                 change: `${models.length} models`,
                 icon: DollarSign,
@@ -35,6 +36,7 @@ export default function MetricsGrid({ rows }: MetricsGridProps) {
             },
             {
                 label: 'Best Model',
+                tooltip: 'The top-performing AI model by profit/loss percentage since the session started.',
                 value: bestModel ? bestModel.model_name : 'Waiting',
                 change: bestModel ? `${bestModelPnlPct >= 0 ? '+' : ''}${bestModelPnlPct.toFixed(2)}%` : '--',
                 icon: Activity,
@@ -42,6 +44,7 @@ export default function MetricsGrid({ rows }: MetricsGridProps) {
             },
             {
                 label: 'Avg Win Rate',
+                tooltip: 'Average percentage of profitable trades across all models. A trade "wins" when it closes with positive profit.',
                 value: `${avgWinRate.toFixed(1)}%`,
                 change: `${totalTrades} trades`,
                 icon: TrendingUp,
@@ -49,6 +52,7 @@ export default function MetricsGrid({ rows }: MetricsGridProps) {
             },
             {
                 label: 'Active Models',
+                tooltip: 'Number of AI models currently generating trading signals and executing simulated trades.',
                 value: `${models.length}`,
                 change: `${models.reduce((sum, model) => sum + safeNumber(model.open_positions), 0)} open positions`,
                 icon: BarChart3,
@@ -60,7 +64,7 @@ export default function MetricsGrid({ rows }: MetricsGridProps) {
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {metrics.map((m) => (
-                <div key={m.label} className="glass-card p-5 flex items-center justify-between group cursor-default">
+                <div key={m.label} className="glass-card p-5 flex items-center justify-between group cursor-help" title={m.tooltip}>
                     <div>
                         <p className="text-sm text-slate-400 font-medium tracking-wide uppercase text-[11px] mb-1">{m.label}</p>
                         <div className="flex items-baseline gap-2 mt-1">

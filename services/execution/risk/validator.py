@@ -33,30 +33,29 @@ class OrderValidator:
             logger.warning(f"REJECTED: Order Value ${estimated_cost:.2f} exceeds limit ${self.MAX_ORDER_VALUE}")
             return False
 
-        # 3. Concentration Check (Post-Trade)
-        # Note: This requires knowing total equity. For MVP we use simplistic check.
-        # Assuming we can get approx equity from portfolio.cash (if no positions) 
-        # or we need a way to pass total_equity. 
-        # For now, let's skip complex equity calc or pass it in? 
-        # Let's trust portfolio.cash for simple initial check if all cash.
-        
-        # Improvement: Pass current_prices to calculate true equity?
-        # For MVP, let's just guard against excessive single position size *if* we are buying.
-        
+        # 3. Dynamic Concentration Check
         if side == "BUY":
-            # If we buy this, will it exceed %?
-            # Rough equity approx: Cash + Cost of this trade (since we convert cash to asset) + other assets
-            # Let's just check if this single trade is > 20% of (Cash + Value)
-            # Hard to do without real-time prices of other assets.
-            # Simplified: Don't allow buying more than 20% of *current available cash*? No that's too restrictive.
-            # Let's use a fixed "Max Position Size" of $25k for now?
-            MAX_POS_SIZE = 25000.0
+            # Estimate total equity assuming other assets haven't moved massively from last fill price
+            # (In a real system, we'd pass current_prices dict to calculate_total_equity)
+            estimated_equity = portfolio.cash
+            for pos_symbol, info in portfolio.positions.items():
+                if pos_symbol == symbol:
+                     # For the symbol being bought, value is existing + new cost
+                     estimated_equity += (info.get('qty', 0) * signal_price)
+                else:
+                     # Approximation using avg_price or signal_price (rough)
+                     estimated_equity += (info.get('qty', 0) * info.get('avg_price', 0))
+            
+            # The value of the specific position post-trade
             existing_qty = portfolio.positions.get(symbol, {}).get('qty', 0)
             existing_val = existing_qty * signal_price
             new_val = existing_val + estimated_cost
             
-            if new_val > MAX_POS_SIZE:
-                 logger.warning(f"REJECTED: Position size ${new_val:.2f} would exceed limit ${MAX_POS_SIZE}")
+            # Use max concentration rule against the dynamically estimated equity
+            max_pos_size = estimated_equity * self.MAX_CONCENTRATION
+            
+            if new_val > max_pos_size:
+                 logger.warning(f"REJECTED: Position size ${new_val:.2f} would exceed {self.MAX_CONCENTRATION*100}% of portfolio equity (${max_pos_size:.2f})")
                  return False
 
         return True

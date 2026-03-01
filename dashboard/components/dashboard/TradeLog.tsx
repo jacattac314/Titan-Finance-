@@ -67,12 +67,12 @@ export default function TradeLog({ trades }: TradeLogProps) {
           <thead className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase bg-black/40 border-b border-white/10">
             <tr>
               <th className="px-5 py-3.5">Time</th>
-              <th className="px-5 py-3.5">Sym</th>
+              <th className="px-5 py-3.5">Symbol</th>
               <th className="px-5 py-3.5">Side</th>
               <th className="px-5 py-3.5">Strategy / Model</th>
               <th className="px-5 py-3.5">Qty</th>
               <th className="px-5 py-3.5">Price</th>
-              <th className="px-5 py-3.5">PnL</th>
+              <th className="px-5 py-3.5" title="Realized profit or loss from this trade">Profit/Loss</th>
               <th className="px-5 py-3.5">Insight</th>
               <th className="px-5 py-3.5">Status</th>
             </tr>
@@ -81,7 +81,10 @@ export default function TradeLog({ trades }: TradeLogProps) {
             {trades.length === 0 && (
               <tr>
                 <td colSpan={9} className="text-center py-8 text-muted-foreground">
-                  Waiting for trade signals...
+                  <div className="space-y-1">
+                    <p className="text-slate-300 font-medium text-sm">No executions yet</p>
+                    <p className="text-xs text-slate-500">Trades appear here when models generate signals strong enough to trigger order execution.</p>
+                  </div>
                 </td>
               </tr>
             )}

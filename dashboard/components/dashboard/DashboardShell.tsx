@@ -11,6 +11,7 @@ import SignalFeed from "@/components/dashboard/SignalFeed";
 import TradeLog from "@/components/dashboard/TradeLog";
 import {
   FilterState,
+  ForecastRecord,
   LeaderboardRow,
   MarkerRecord,
   ModelOption,
@@ -69,6 +70,8 @@ interface SignalEventPayload {
   model_id?: string;
   model_name?: string;
   explanation?: Array<{ feature?: string; impact?: number }>;
+  forecast_price?: number;
+  forecast_timestamp?: number | string;
 }
 
 interface TradeEventPayload {
@@ -248,6 +251,8 @@ export default function DashboardShell() {
         modelId: payload.model_id || "unknown_model",
         modelName: payload.model_name || payload.model_id || "Unknown",
         explanation: formatSignalExplanation(payload.explanation),
+        forecastPrice: payload.forecast_price ? Number(payload.forecast_price) : undefined,
+        forecastTimestamp: payload.forecast_timestamp ? normalizeTimestamp(payload.forecast_timestamp) : undefined,
       };
       setSignals((previous) => [next, ...previous].slice(0, 400));
       receivedLiveDataRef.current = true;
@@ -506,6 +511,10 @@ export default function DashboardShell() {
               : signal === 'SELL'
                 ? ['Profit/risk take', 'Close before end-of-day']
                 : ['No clear edge'],
+          forecastPrice: signal !== 'HOLD'
+            ? Math.round((price + (signal === 'BUY' ? 1 : -1) * price * (0.002 + Math.random() * 0.008)) * 100) / 100
+            : undefined,
+          forecastTimestamp: signal !== 'HOLD' ? timestamp + 60 * 60 * 1000 : undefined,
         };
         setSignals((previous) => [nextSignal, ...previous].slice(0, 400));
 
@@ -658,6 +667,29 @@ export default function DashboardShell() {
     [chartSymbol, filteredSignals]
   );
 
+  const chartForecasts = useMemo(
+    () =>
+      filteredSignals
+        .filter(
+          (signal) =>
+            (signal.signal === "BUY" || signal.signal === "SELL") &&
+            signal.symbol === chartSymbol &&
+            signal.forecastPrice !== undefined &&
+            signal.forecastTimestamp !== undefined
+        )
+        .slice(0, 5)
+        .map<ForecastRecord>((signal) => ({
+          id: signal.id,
+          modelName: signal.modelName,
+          currentPrice: signal.price,
+          currentTimestamp: signal.timestamp,
+          forecastPrice: signal.forecastPrice!,
+          forecastTimestamp: signal.forecastTimestamp!,
+          signal: signal.signal as "BUY" | "SELL",
+        })),
+    [chartSymbol, filteredSignals]
+  );
+
   const visibleLeaderboardRows = useMemo(() => {
     if (filters.model === "ALL") {
       return leaderboardRows;
@@ -703,7 +735,7 @@ export default function DashboardShell() {
               Market Overview ({chartSymbol})
             </h2>
             <div className="flex-1 w-full h-full min-h-[380px]">
-              <PriceChart symbol={chartSymbol} points={chartPoints} markers={chartMarkers} />
+              <PriceChart symbol={chartSymbol} points={chartPoints} markers={chartMarkers} forecasts={chartForecasts} />
             </div>
           </div>
         </div>

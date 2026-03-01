@@ -25,6 +25,14 @@ function formatSignedPercent(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+function formatLargeNumber(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1e9) return (value / 1e9).toFixed(2) + "B";
+  if (abs >= 1e6) return (value / 1e6).toFixed(2) + "M";
+  if (abs >= 1e3) return (value / 1e3).toFixed(1) + "K";
+  return value.toFixed(2);
+}
+
 export default function ModelLeaderboard({ rows }: ModelLeaderboardProps) {
   const [sortKey, setSortKey] = useState<SortKey>("pnl");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -56,6 +64,8 @@ export default function ModelLeaderboard({ rows }: ModelLeaderboardProps) {
     setSortDir("desc");
   };
 
+  const sortArrow = (key: SortKey) => key === sortKey ? (sortDir === "desc" ? " ▼" : " ▲") : "";
+
   const headerButtonClass =
     "text-left text-[10px] uppercase font-bold tracking-wider text-slate-400 hover:text-white transition-colors group flex items-center gap-1";
 
@@ -72,37 +82,37 @@ export default function ModelLeaderboard({ rows }: ModelLeaderboardProps) {
             <tr className="border-b border-white/10 bg-black/40">
               <th className="py-3 px-4">
                 <button type="button" className={headerButtonClass} onClick={() => requestSort("model_name")}>
-                  Model
+                  Model{sortArrow("model_name")}
                 </button>
               </th>
               <th className="py-3 px-4 text-right">
-                <button type="button" className={headerButtonClass} onClick={() => requestSort("pnl")}>
-                  PnL
+                <button type="button" className={headerButtonClass} onClick={() => requestSort("pnl")} title="Profit and Loss: Total simulated gain or loss for this model.">
+                  Profit/Loss{sortArrow("pnl")}
                 </button>
               </th>
               <th className="py-3 px-4 text-right">
-                <button type="button" className={headerButtonClass} onClick={() => requestSort("pnl_pct")}>
-                  PnL %
+                <button type="button" className={headerButtonClass} onClick={() => requestSort("pnl_pct")} title="Profit/Loss as a percentage of the starting capital.">
+                  PnL %{sortArrow("pnl_pct")}
                 </button>
               </th>
               <th className="py-3 px-4 text-right">
-                <button type="button" className={headerButtonClass} onClick={() => requestSort("win_rate")}>
-                  Win Rate
+                <button type="button" className={headerButtonClass} onClick={() => requestSort("win_rate")} title="Percentage of trades that closed with a profit.">
+                  Win Rate{sortArrow("win_rate")}
                 </button>
               </th>
               <th className="py-3 px-4 text-right">
-                <button type="button" className={headerButtonClass} onClick={() => requestSort("max_drawdown_pct")}>
-                  Max DD
+                <button type="button" className={headerButtonClass} onClick={() => requestSort("max_drawdown_pct")} title="Maximum Drawdown: The largest peak-to-trough decline in portfolio value.">
+                  Max Drawdown{sortArrow("max_drawdown_pct")}
                 </button>
               </th>
               <th className="py-3 px-4 text-right">
                 <button type="button" className={headerButtonClass} onClick={() => requestSort("trades")}>
-                  Trades
+                  Trades{sortArrow("trades")}
                 </button>
               </th>
               <th className="py-3 pl-4 text-right">
-                <button type="button" className={headerButtonClass} onClick={() => requestSort("open_positions")}>
-                  Open Pos
+                <button type="button" className={headerButtonClass} onClick={() => requestSort("open_positions")} title="Number of positions currently held by this model.">
+                  Open Positions{sortArrow("open_positions")}
                 </button>
               </th>
             </tr>
@@ -125,7 +135,7 @@ export default function ModelLeaderboard({ rows }: ModelLeaderboardProps) {
                   {row.model_name}
                 </td>
                 <td className={`py-4 px-4 text-right font-mono font-bold tracking-wider ${safeNumber(row.pnl) >= 0 ? "text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]" : "text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.3)]"}`}>
-                  {safeNumber(row.pnl) >= 0 ? "+" : "-"}${Math.abs(safeNumber(row.pnl)).toFixed(2)}
+                  {safeNumber(row.pnl) >= 0 ? "+" : "-"}${formatLargeNumber(Math.abs(safeNumber(row.pnl)))}
                 </td>
                 <td className={`py-4 px-4 text-right font-mono font-semibold ${safeNumber(row.pnl_pct) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                   <span className="bg-white/5 px-2 py-0.5 rounded-md border border-white/5">{formatSignedPercent(safeNumber(row.pnl_pct))}</span>

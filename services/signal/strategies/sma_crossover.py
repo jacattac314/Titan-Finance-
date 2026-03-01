@@ -54,6 +54,19 @@ class SMACrossover(Strategy):
             logger.info(f"[{self.symbol}] Death Cross! Fast={fast_sma:.2f} < Slow={slow_sma:.2f}")
 
         if signal:
+            # 1-hour forecast: project price along fast SMA slope for 60 bars
+            price_list = list(self.prices)
+            if len(price_list) >= 2:
+                # Calculate the per-bar drift from the fast SMA period
+                recent_fast = price_list[-self.fast_period:]
+                slope_per_bar = (recent_fast[-1] - recent_fast[0]) / max(len(recent_fast) - 1, 1)
+                forecast_price = round(price + slope_per_bar * 60, 2)
+            else:
+                forecast_price = price
+            
+            current_ts = tick.get("timestamp", 0)
+            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            
             return {
                 "model_id": self.model_id,
                 "model_name": "SMA_Crossover_v1",
@@ -61,7 +74,9 @@ class SMACrossover(Strategy):
                 "signal": signal,
                 "confidence": 1.0, # Simple logic has high mechanical confidence
                 "price": price,
-                "timestamp": tick.get("timestamp")
+                "timestamp": current_ts,
+                "forecast_price": forecast_price,
+                "forecast_timestamp": forecast_timestamp
             }
             
         return None

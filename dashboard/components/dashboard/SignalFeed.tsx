@@ -18,8 +18,11 @@ export default function SignalFeed({ signals }: SignalFeedProps) {
     return (
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {signals.length === 0 && (
-                <div className="text-center text-muted-foreground text-sm py-10">
-                    Waiting for signals...
+                <div className="text-center text-muted-foreground text-sm py-10 space-y-2">
+                    <p className="text-slate-300 font-medium">No signals yet</p>
+                    <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                        Signals appear here when AI models detect buy or sell opportunities. Each signal includes the model name, confidence level, and reasoning.
+                    </p>
                 </div>
             )}
 

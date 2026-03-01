@@ -23,6 +23,8 @@ export interface SignalRecord {
   modelId: string;
   modelName: string;
   explanation: string[];
+  forecastPrice?: number;
+  forecastTimestamp?: number;
 }
 
 export interface TradeRecord {
@@ -54,6 +56,18 @@ export interface MarkerRecord {
   confidence: number;
   price: number;
   timestamp: number;
+  forecastPrice?: number;
+  forecastTimestamp?: number;
+}
+
+export interface ForecastRecord {
+  id: string;
+  modelName: string;
+  currentPrice: number;
+  currentTimestamp: number;
+  forecastPrice: number;
+  forecastTimestamp: number;
+  signal: "BUY" | "SELL";
 }
 
 export interface LeaderboardRow {

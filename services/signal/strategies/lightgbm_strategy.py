@@ -27,52 +27,25 @@ class LightGBMStrategy(Strategy):
         # Hyperparams
         self.confidence_threshold = config.get("confidence_threshold", 0.6)
         
-        # Train on startup? For MVP, yes.
-        # In prod, load saved model.
-        self._train_mock_model()
+        self.model_path = os.path.join(os.path.dirname(__file__), '../models/weights/lightgbm_model.txt')
+        self._load_model()
 
-    def _train_mock_model(self):
+    def _load_model(self):
         """
-        Trains a quick model on synthetic data to ensure mechanics work.
+        Loads the pre-trained LightGBM model from disk.
         """
-        logger.info("Training initial LightGBM model on synthetic data...")
-        # Generate dummy data
-        data = {
-            'open': np.random.rand(1000) * 100,
-            'high': np.random.rand(1000) * 100,
-            'low': np.random.rand(1000) * 100,
-            'close': np.random.rand(1000) * 100,
-            'volume': np.random.rand(1000) * 1000
-        }
-        df = pd.DataFrame(data)
-        
-        # Features
-        X = self.fe.calculate_features(df)
-        if X.empty:
-            logger.warning("Feature engineering returned empty DF.")
+        if not os.path.exists(self.model_path):
+            logger.warning(f"LightGBM model not found at {self.model_path}. Please run train_lgbm.py. Using mock model for now.")
+            # Fallback for CI/CD or if user hasn't trained it yet
+            self.model = None
             return
 
-        # Target: 1 if next return > 0, else 0
-        y = (X['close'].shift(-1) > X['close']).astype(int)
-        
-        # Align X and y
-        X = X.iloc[:-1]
-        y = y.iloc[:-1]
-        
-        # Train
-        train_data = lgb.Dataset(X, label=y)
-        params = {
-            'objective': 'binary',
-            'metric': 'binary_logloss',
-            'verbosity': -1,
-            'boosting_type': 'gbdt'
-        }
-        self.model = lgb.train(params, train_data, num_boost_round=50)
+        logger.info(f"Loading LightGBM model from {self.model_path}...")
+        self.model = lgb.Booster(model_file=self.model_path)
         
         # Initialize Explainer
-        # TreeExplainer is optimized for trees
         self.explainer = shap.TreeExplainer(self.model)
-        logger.info("LightGBM Model Trained & Explainer Initialized.")
+        logger.info("LightGBM Model loaded & Explainer Initialized from disk.")
 
     async def on_tick(self, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # Accumulate tick data into bars? 
@@ -143,15 +116,26 @@ class LightGBMStrategy(Strategy):
                 f"{feature_names[i]}: {vals[i]:.4f}" for i in top_indices
             ]
             
+            # 1-hour forecast: project price using ATR and confidence
+            atr = float(last_row['ATR'].iloc[0]) if 'ATR' in last_row.columns else price * 0.005
+            conf = float(prob if signal == "BUY" else 1 - prob)
+            direction = 1.0 if signal == "BUY" else -1.0
+            forecast_price = round(price + direction * atr * conf * 2.0, 2)
+            
+            current_ts = tick.get("timestamp", 0)
+            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            
             return {
                 "model_id": self.model_id,
                 "model_name": "LightGBM_v1",
                 "symbol": self.symbol,
                 "signal": signal,
-                "confidence": round(float(prob if signal == "BUY" else 1-prob), 2),
+                "confidence": round(conf, 2),
                 "price": price,
-                "timestamp": tick.get("timestamp"),
-                "explanation": explanation
+                "timestamp": current_ts,
+                "explanation": explanation,
+                "forecast_price": forecast_price,
+                "forecast_timestamp": forecast_timestamp
             }
             
         return None
