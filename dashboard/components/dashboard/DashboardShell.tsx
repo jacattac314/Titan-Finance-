@@ -37,10 +37,12 @@ const INITIAL_FILTERS: FilterState = {
 
 const SIMULATED_SYMBOLS = ["SPY", "QQQ", "NVDA", "AAPL"];
 const SIMULATED_MODELS = [
-  { id: "model-alpha", name: "Momentum Falcon" },
-  { id: "model-beta", name: "Mean Revert Atlas" },
-  { id: "model-gamma", name: "Macro Pulse" },
-  { id: "model-delta", name: "Volatility Weaver" },
+  { id: "lgb_spy_v1", name: "LightGBM_v1" },
+  { id: "lstm_spy_v1", name: "LSTM_Attention_v1" },
+  { id: "tft_spy_v1", name: "TFT_Transformer_v1" },
+  { id: "logreg_spy_v1", name: "LogisticRegime_v1" },
+  { id: "rf_spy_v1", name: "RandomForestPulse_v1" },
+  { id: "sma_spy", name: "SMA_Crossover" },
 ];
 const STARTING_CASH = 100_000;
 const DAY_STEPS = 42;
@@ -162,7 +164,7 @@ function formatSignalExplanation(explanation: SignalEventPayload["explanation"])
   if (!explanation || !Array.isArray(explanation) || explanation.length === 0) {
     return [];
   }
-  return explanation.map((item: any) => {
+  return explanation.map((item) => {
     if (typeof item === "string") {
       return item;
     }
