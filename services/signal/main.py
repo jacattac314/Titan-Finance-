@@ -11,6 +11,8 @@ from strategies.sma_crossover import SMACrossover
 from strategies.lightgbm_strategy import LightGBMStrategy
 from strategies.lstm_strategy import LSTMStrategy
 from strategies.tft_strategy import TFTStrategy
+from strategies.logistic_regression_strategy import LogisticRegressionStrategy
+from strategies.random_forest_strategy import RandomForestStrategy
 
 load_dotenv()
 
@@ -30,7 +32,9 @@ async def run_signal_engine(redis_client):
         SMACrossover({"symbol": "SPY", "fast_period": 10, "slow_period": 30, "model_id": "sma_spy"}),
         LightGBMStrategy({"symbol": "SPY", "model_id": "lgb_spy_v1", "confidence_threshold": 0.6}),
         LSTMStrategy({"symbol": "SPY", "model_id": "lstm_spy_v1", "lookback": 60}),
-        TFTStrategy({"symbol": "SPY", "model_id": "tft_spy_v1", "lookback": 60})
+        TFTStrategy({"symbol": "SPY", "model_id": "tft_spy_v1", "lookback": 60}),
+        LogisticRegressionStrategy({"symbol": "SPY", "model_id": "logreg_spy_v1", "confidence_threshold": 0.58}),
+        RandomForestStrategy({"symbol": "SPY", "model_id": "rf_spy_v1", "confidence_threshold": 0.62})
     ]
     
     # 2. Subscribe to Market Data
