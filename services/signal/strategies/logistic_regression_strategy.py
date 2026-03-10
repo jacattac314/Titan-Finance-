@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 from feature_engineering import FeatureEngineer
-from .base import Strategy
+from .base import Strategy, _to_epoch_ms
 
 logger = logging.getLogger("TitanLogisticRegression")
 
@@ -107,7 +107,7 @@ class LogisticRegressionStrategy(Strategy):
             "price": price,
             "timestamp": tick.get("timestamp"),
             "forecast_price": forecast_price,
-            "forecast_timestamp": int(tick.get("timestamp", 0)) + 60 * 60 * 1000,
+            "forecast_timestamp": _to_epoch_ms(tick.get("timestamp", 0)) + 60 * 60 * 1000,
             "explanation": [
                 f"ProbUp: {prob_up:.2f}",
                 f"RSI: {float(last['RSI'].iloc[0]):.1f}",

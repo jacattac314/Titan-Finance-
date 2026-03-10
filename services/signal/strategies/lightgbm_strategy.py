@@ -6,7 +6,7 @@ import lightgbm as lgb
 import shap
 from typing import Dict, Any, Optional, Deque
 from collections import deque
-from .base import Strategy
+from .base import Strategy, _to_epoch_ms
 from feature_engineering import FeatureEngineer
 
 logger = logging.getLogger("TitanLightGBM")
@@ -36,8 +36,10 @@ class LightGBMStrategy(Strategy):
         Loads the pre-trained LightGBM model from disk.
         """
         if not os.path.exists(self.model_path):
-            logger.warning(f"LightGBM model not found at {self.model_path}. Please run train_lgbm.py. Using mock model for now.")
-            # Fallback for CI/CD or if user hasn't trained it yet
+            logger.warning(
+                "LightGBM model not loaded — strategy will produce no signals. "
+                f"Train a model and place it at {self.model_path}."
+            )
             self.model = None
             return
 
@@ -74,7 +76,10 @@ class LightGBMStrategy(Strategy):
         
         if len(self.bars) < self.min_bars:
             return None
-            
+
+        if self.model is None:
+            return None
+
         # Convert to DF
         df = pd.DataFrame(list(self.bars))
         
@@ -124,7 +129,7 @@ class LightGBMStrategy(Strategy):
             forecast_price = round(price + direction * atr * conf * 2.0, 2)
             
             current_ts = tick.get("timestamp", 0)
-            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            forecast_timestamp = _to_epoch_ms(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
             
             return {
                 "model_id": self.model_id,

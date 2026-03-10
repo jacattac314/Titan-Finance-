@@ -7,7 +7,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 
 from feature_engineering import FeatureEngineer
-from .base import Strategy
+from .base import Strategy, _to_epoch_ms
 
 logger = logging.getLogger("TitanRandomForest")
 
@@ -101,7 +101,7 @@ class RandomForestStrategy(Strategy):
             "price": price,
             "timestamp": tick.get("timestamp"),
             "forecast_price": round(price + direction * atr * confidence * 1.8, 2),
-            "forecast_timestamp": int(tick.get("timestamp", 0)) + 60 * 60 * 1000,
+            "forecast_timestamp": _to_epoch_ms(tick.get("timestamp", 0)) + 60 * 60 * 1000,
             "explanation": explanation,
         }
 

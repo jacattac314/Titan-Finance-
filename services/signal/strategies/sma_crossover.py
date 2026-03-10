@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional, Deque
 from collections import deque
 import statistics
 import logging
-from .base import Strategy
+from .base import Strategy, _to_epoch_ms
 
 logger = logging.getLogger("TitanSMACrossover")
 
@@ -65,7 +65,7 @@ class SMACrossover(Strategy):
                 forecast_price = price
             
             current_ts = tick.get("timestamp", 0)
-            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            forecast_timestamp = _to_epoch_ms(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
             
             return {
                 "model_id": self.model_id,

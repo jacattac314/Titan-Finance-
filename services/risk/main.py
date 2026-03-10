@@ -55,10 +55,16 @@ async def main():
     }
 
     engine = RiskEngine(config)
+
+    # Seed starting equity so position sizing returns non-zero values
+    starting_equity = float(os.getenv("PAPER_STARTING_EQUITY", 100_000))
+    engine.update_account_state(equity=starting_equity, daily_pnl=0.0)
+
     logger.info(
         f"RiskEngine ready | max_drawdown={config['MAX_DAILY_LOSS_PCT']:.1%} "
         f"| max_consec_losses={config['MAX_CONSECUTIVE_LOSSES']} "
-        f"| rollback_sharpe={config['ROLLBACK_MIN_SHARPE']}"
+        f"| rollback_sharpe={config['ROLLBACK_MIN_SHARPE']} "
+        f"| starting_equity={starting_equity:,.0f}"
     )
 
     # --- Connect to Redis ---
@@ -74,6 +80,7 @@ async def main():
         return
 
     signals_processed = 0
+    daily_pnl_accumulator = 0.0
 
     set_ready(True)
     logger.info("RiskGuardian listening for events...")
@@ -106,6 +113,12 @@ async def main():
                     )
                     engine.record_trade_result(raw_return)
                     engine.record_prediction(correct_direction, raw_return)
+                    realized_pnl = getattr(fill, "realized_pnl", 0.0) or 0.0
+                    daily_pnl_accumulator += realized_pnl
+                    engine.update_account_state(
+                        equity=starting_equity + daily_pnl_accumulator,
+                        daily_pnl=daily_pnl_accumulator,
+                    )
                 continue
 
             # ----------------------------------------------------------------
@@ -118,6 +131,10 @@ async def main():
                 continue
 
             logger.info(f"Received signal: {data}")
+
+            # Skip HOLD signals — no execution action required
+            if signal_event.signal == "HOLD":
+                continue
 
             # 1. Validate (kill switch + manual approval mode)
             if not engine.validate_signal(data):
