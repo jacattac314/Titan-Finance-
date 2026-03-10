@@ -9,11 +9,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY services/gateway/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
-COPY . .
+# Copy shared utilities
+COPY shared/schemas.py schemas.py
+COPY shared/health.py health.py
+
+# Copy service source code
+COPY services/gateway/ .
 
 # Default command (can be overridden by docker-compose)
 CMD ["python", "main.py"]

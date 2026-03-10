@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from db import db
+from schemas import MarketDataEvent, validate_and_log
+from health import run_health_server, set_ready
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -22,9 +24,11 @@ WATCHLIST = ["SPY", "QQQ", "AAPL", "MSFT", "TSLA", "NVDA", "AMD", "AMZN"]
 
 async def handle_tick(tick_data):
     """Callback for when a new tick is received."""
-    # 1. Log to console (debug) or Redis (production)
-    # logger.debug(f"Tick: {tick_data['symbol']} @ {tick_data['price']}")
-    
+    # Validate tick conforms to MarketDataEvent schema before persisting/publishing
+    event = validate_and_log(MarketDataEvent, tick_data, context="gateway:publish:market_data")
+    if event is None:
+        return
+
     # 2. Write to QuestDB (Fast path)
     db.write_tick(
         symbol=tick_data['symbol'],
@@ -69,17 +73,22 @@ async def main():
         else:
             raise ValueError(f"Unknown DATA_PROVIDER: {provider_type}")
         
+        set_ready(True)
         # 3. Subscribe to Data Stream
         await provider.subscribe(WATCHLIST, handle_tick)
 
-        
     except Exception as e:
         logger.error(f"Provider runtime error: {e}")
     finally:
         await db.close()
 
+async def _run():
+    health = asyncio.create_task(run_health_server(service="titan-gateway"))
+    await main()
+    health.cancel()
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(_run())
     except KeyboardInterrupt:
         logger.info("Gateway stopped by user.")
