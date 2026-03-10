@@ -21,6 +21,15 @@ from simulation.latency import LatencySimulator
 from alpaca_client import TitanAlpacaConnector
 from audit import TradeAuditLogger
 
+# Shared schemas and health server
+from schemas import (
+    ExecutionRequestEvent,
+    ExecutionFilledEvent,
+    validate_and_log,
+    SCHEMA_VERSION,
+)
+from health import run_health_server, set_ready
+
 load_dotenv()
 
 logging.basicConfig(
@@ -212,12 +221,18 @@ async def run_live_execution(redis_client):
 
             # ---- Risk-approved execution request: execute via Alpaca ----
             elif channel == "execution_requests":
-                model_id = payload.get("model_id", "unknown")
-                symbol = payload.get("symbol", "")
-                signal_str = payload.get("side", "hold").upper()  # risk sends "buy"/"sell"
-                confidence = float(payload.get("confidence", 0.0))
-                explanation = payload.get("explanation", [])
-                price = current_prices.get(symbol, float(payload.get("price", 0) or 0))
+                exec_req = validate_and_log(
+                    ExecutionRequestEvent, payload, context="execution:live:execution_requests"
+                )
+                if exec_req is None:
+                    continue
+
+                model_id = exec_req.model_id
+                symbol = exec_req.symbol
+                signal_str = exec_req.side.upper()  # risk sends "buy"/"sell"
+                confidence = exec_req.confidence
+                explanation = exec_req.explanation
+                price = current_prices.get(symbol, exec_req.price or 0.0)
 
                 logger.info(
                     f"Signal received [{model_id}]: {signal_str} {symbol} "
@@ -284,6 +299,8 @@ async def run_paper_execution(redis_client):
     last_publish_at = 0.0
     current_prices = {} # symbol -> price
 
+    set_ready(True)
+
     async for message in pubsub.listen():
         try:
             if message.get("type") != "message":
@@ -292,7 +309,7 @@ async def run_paper_execution(redis_client):
             channel = message.get("channel")
             if isinstance(channel, bytes):
                 channel = channel.decode("utf-8")
-            
+
             payload = json.loads(message["data"])
             now = asyncio.get_running_loop().time()
 
@@ -300,39 +317,62 @@ async def run_paper_execution(redis_client):
                 # Update internal price cache
                 if payload.get("type") == "trade":
                     current_prices[payload["symbol"]] = float(payload["price"])
-                
+
                 # Periodically publish portfolio updates
                 if (now - last_publish_at) >= publish_interval:
                     await publish_portfolios(redis_client, manager, current_prices)
                     last_publish_at = now
-                
+
             elif channel == "execution_requests":
-                # 1. Received risk-approved execution request
+                # 1. Validate incoming execution request schema
+                exec_req = validate_and_log(
+                    ExecutionRequestEvent, payload, context="execution:consume:execution_requests"
+                )
+                if exec_req is None:
+                    continue
+
                 logger.info(f"Received execution request: {payload}")
-                symbol = payload.get("symbol")
-                price = current_prices.get(symbol, 0.0)
+                price = current_prices.get(exec_req.symbol, 0.0)
 
                 # 2. Simulate Execution (Broker Step) with Async Latency
                 fill = await simulate_fill(payload, price, manager)
-                
+
                 if fill:
-                    # 3. Update Portfolio (Legder Step)
+                    # 3. Update Portfolio (Ledger Step)
                     realized_pnl = manager.on_execution_fill(fill)
-                    
+
                     # 4. Add additional data to fill event for the dashboard
                     fill['realized_pnl'] = realized_pnl
-                    
+                    fill.setdefault('schema_version', SCHEMA_VERSION)
+
                     name_map = {
                         "tft_model_01": "TFT Transformer",
                         "lstm_model_01": "LSTM DeepNet",
                         "lightgbm_01": "LightGBM Quant",
                         "sma_cross": "SMA Crossover"
                     }
-                    fill['model_name'] = name_map.get(fill.get('model_id', ''), str(fill.get('model_id', '')).replace("_", " ").title())
-                    
+                    fill['model_name'] = name_map.get(
+                        fill.get('model_id', ''),
+                        str(fill.get('model_id', '')).replace("_", " ").title()
+                    )
+
+                    # Validate fill event before publishing
+                    fill_event = validate_and_log(
+                        ExecutionFilledEvent, fill, context="execution:publish:execution_filled"
+                    )
+                    if fill_event is None:
+                        logger.error("Dropping invalid fill event: %s", fill)
+                        continue
+
                     # 5. Publish Fill Event (for Dashboard/Logs)
-                    await redis_client.publish("execution_filled", json.dumps(fill))
-                    logger.info(f"Executed ({fill['slippage']}): {fill['side']} {fill['qty']} {fill['symbol']} @ {fill['price']}")
+                    publish_payload = fill_event.to_dict()
+                    publish_payload['realized_pnl'] = realized_pnl
+                    publish_payload['model_name'] = fill['model_name']
+                    await redis_client.publish("execution_filled", json.dumps(publish_payload))
+                    logger.info(
+                        f"Executed ({fill['slippage']}): {fill['side']} {fill['qty']} "
+                        f"{fill['symbol']} @ {fill['price']}"
+                    )
 
         except Exception as exc:
             logger.error(f"Error in paper execution loop: {exc}")
@@ -350,9 +390,15 @@ async def main():
 
     execution_mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
     if execution_mode == "live":
-        await run_live_execution(redis_client)
+        await asyncio.gather(
+            run_health_server(service="titan-execution"),
+            run_live_execution(redis_client),
+        )
     else:
-        await run_paper_execution(redis_client)
+        await asyncio.gather(
+            run_health_server(service="titan-execution"),
+            run_paper_execution(redis_client),
+        )
 
 if __name__ == "__main__":
     try:

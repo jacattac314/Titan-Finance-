@@ -21,6 +21,14 @@ import redis.asyncio as redis
 from dotenv import load_dotenv
 
 from risk_engine import RiskEngine
+from schemas import (
+    TradeSignalEvent,
+    ExecutionRequestEvent,
+    ExecutionFilledEvent,
+    validate_and_log,
+    SCHEMA_VERSION,
+)
+from health import run_health_server, set_ready
 
 load_dotenv()
 
@@ -67,6 +75,7 @@ async def main():
 
     signals_processed = 0
 
+    set_ready(True)
     logger.info("RiskGuardian listening for events...")
 
     async for message in pubsub.listen():
@@ -84,14 +93,17 @@ async def main():
             # execution_filled: record trade result for model-performance tracking
             # ----------------------------------------------------------------
             if channel == "execution_filled":
-                # Infer a simple trade return from slippage/price for rolling Sharpe
-                price = float(data.get("price", 0) or 0)
-                slippage = float(data.get("slippage", 0) or 0)
-                side = data.get("side", "BUY").upper()
+                fill = validate_and_log(
+                    ExecutionFilledEvent, data, context="risk:consume:execution_filled"
+                )
+                if fill is None:
+                    continue
 
-                if price > 0:
-                    raw_return = -slippage / price  # negative slippage = cost
-                    correct_direction = raw_return >= 0 if side == "BUY" else raw_return <= 0
+                if fill.price > 0:
+                    raw_return = -fill.slippage / fill.price  # negative slippage = cost
+                    correct_direction = (
+                        raw_return >= 0 if fill.side == "BUY" else raw_return <= 0
+                    )
                     engine.record_trade_result(raw_return)
                     engine.record_prediction(correct_direction, raw_return)
                 continue
@@ -99,6 +111,12 @@ async def main():
             # ----------------------------------------------------------------
             # trade_signals: apply risk governance before forwarding
             # ----------------------------------------------------------------
+            signal_event = validate_and_log(
+                TradeSignalEvent, data, context="risk:consume:trade_signals"
+            )
+            if signal_event is None:
+                continue
+
             logger.info(f"Received signal: {data}")
 
             # 1. Validate (kill switch + manual approval mode)
@@ -121,33 +139,34 @@ async def main():
                 continue
 
             # 3. Calculate position size (Fixed Fractional)
-            price = float(data.get("price", 0) or 0)
+            price = signal_event.price
             if price <= 0:
                 logger.error(f"Signal missing valid price: {data}")
                 continue
 
-            stop_loss = price * (0.98 if data.get("signal") == "BUY" else 1.02)
+            stop_loss = price * (0.98 if signal_event.signal == "BUY" else 1.02)
             units = engine.calculate_position_size(price, stop_loss)
 
             if units <= 0:
-                logger.info(f"Position size=0 for {data.get('symbol')} — skipping.")
+                logger.info(f"Position size=0 for {signal_event.symbol} — skipping.")
                 continue
 
-            # 4. Forward approved execution request
-            execution_payload = {
-                "model_id": data.get("model_id", "unknown"),
-                "symbol": data["symbol"],
-                "qty": units,
-                "side": "buy" if data.get("signal") == "BUY" else "sell",
-                "type": "market",
-                "confidence": data.get("confidence", 0.0),
-                "explanation": data.get("explanation", []),
-                "timestamp": data.get("timestamp"),
-            }
-            await r.publish("execution_requests", json.dumps(execution_payload))
+            # 4. Build and validate the execution request before publishing
+            execution_payload = ExecutionRequestEvent(
+                model_id=signal_event.model_id,
+                symbol=signal_event.symbol,
+                qty=units,
+                side="buy" if signal_event.signal == "BUY" else "sell",
+                type="market",
+                confidence=signal_event.confidence,
+                explanation=signal_event.explanation,
+                timestamp=signal_event.timestamp,
+                schema_version=SCHEMA_VERSION,
+            )
+            await r.publish("execution_requests", json.dumps(execution_payload.to_dict()))
             logger.info(
-                f"Approved → {execution_payload['side'].upper()} "
-                f"{units} {execution_payload['symbol']}"
+                f"Approved → {execution_payload.side.upper()} "
+                f"{units} {execution_payload.symbol}"
             )
 
             # 5. Periodic model performance check → rollback if needed
@@ -171,8 +190,14 @@ async def main():
             logger.error(f"Error processing message: {exc}")
 
 
+async def _run():
+    health = asyncio.create_task(run_health_server(service="titan-risk"))
+    await main()
+    health.cancel()
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(_run())
     except KeyboardInterrupt:
         logger.info("RiskGuardian stopped.")
