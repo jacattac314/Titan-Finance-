@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import json
 import logging
+import math
 import os
 import sys
 import uuid
@@ -61,7 +62,12 @@ async def simulate_fill(execution_req: Dict, current_price: float, manager: Port
     # Use current market price; execution_requests may not include price
     decision_price = float(execution_req.get("price") or current_price or 0.0)
 
-    if decision_price <= 0 or qty <= 0 or side not in ("BUY", "SELL"):
+    # Guard against NaN, infinity, or zero/negative prices that would corrupt portfolio state.
+    if not (math.isfinite(decision_price) and decision_price > 0):
+        logger.error("simulate_fill: invalid price %.6g for %s — dropping order.", decision_price, symbol)
+        return None
+
+    if qty <= 0 or side not in ("BUY", "SELL"):
         return None
 
     # Get or Create Portfolio
@@ -139,11 +145,28 @@ async def run_live_execution(redis_client):
     """
     logger.info("Starting LIVE execution engine...")
 
-    # --- Configuration ---
+    # --- Configuration (validated at startup) ---
     model_version = os.getenv("MODEL_VERSION", "v1.0")
-    circuit_breaker_drawdown = float(os.getenv("CIRCUIT_BREAKER_DRAWDOWN_PCT", "0.03"))
-    rollback_min_sharpe = float(os.getenv("ROLLBACK_MIN_SHARPE", "0.5"))
-    account_poll_interval = float(os.getenv("ACCOUNT_POLL_SECONDS", "30"))
+    try:
+        circuit_breaker_drawdown = float(os.getenv("CIRCUIT_BREAKER_DRAWDOWN_PCT", "0.03"))
+        rollback_min_sharpe = float(os.getenv("ROLLBACK_MIN_SHARPE", "0.5"))
+        account_poll_interval = float(os.getenv("ACCOUNT_POLL_SECONDS", "30"))
+    except ValueError as exc:
+        logger.critical("Invalid live execution configuration: %s", exc)
+        return
+
+    if not (0.001 <= circuit_breaker_drawdown <= 1.0):
+        logger.critical(
+            "CIRCUIT_BREAKER_DRAWDOWN_PCT=%.4f out of valid range [0.001, 1.0]. Aborting.",
+            circuit_breaker_drawdown,
+        )
+        return
+    if account_poll_interval < 1.0:
+        logger.critical(
+            "ACCOUNT_POLL_SECONDS=%.1f must be >= 1 second. Aborting.",
+            account_poll_interval,
+        )
+        return
 
     # --- Initialise connector (singleton) ---
     try:

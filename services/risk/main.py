@@ -43,16 +43,54 @@ logger = logging.getLogger("TitanRiskGuardian")
 _PERFORMANCE_CHECK_INTERVAL = int(os.getenv("RISK_PERF_CHECK_INTERVAL", "10"))
 
 
+def _load_and_validate_config() -> dict:
+    """Load risk configuration from environment variables and validate ranges."""
+    try:
+        config = {
+            "MAX_DAILY_LOSS_PCT": float(os.getenv("RISK_MAX_DAILY_LOSS", "0.03")),
+            "RISK_PER_TRADE_PCT": float(os.getenv("RISK_PER_TRADE", "0.01")),
+            "MAX_CONSECUTIVE_LOSSES": int(os.getenv("CIRCUIT_BREAKER_CONSECUTIVE_LOSSES", "5")),
+            "ROLLBACK_MIN_SHARPE": float(os.getenv("ROLLBACK_MIN_SHARPE", "0.5")),
+            "ROLLBACK_MIN_ACCURACY": float(os.getenv("ROLLBACK_MIN_ACCURACY", "0.50")),
+        }
+    except ValueError as exc:
+        logger.critical("Invalid risk configuration value: %s", exc)
+        sys.exit(1)
+
+    errors = []
+    if not (0.001 <= config["MAX_DAILY_LOSS_PCT"] <= 1.0):
+        errors.append(
+            f"RISK_MAX_DAILY_LOSS={config['MAX_DAILY_LOSS_PCT']} must be in [0.001, 1.0]"
+        )
+    if not (0.0001 <= config["RISK_PER_TRADE_PCT"] <= 0.5):
+        errors.append(
+            f"RISK_PER_TRADE={config['RISK_PER_TRADE_PCT']} must be in [0.0001, 0.5]"
+        )
+    if config["MAX_CONSECUTIVE_LOSSES"] < 1:
+        errors.append(
+            f"CIRCUIT_BREAKER_CONSECUTIVE_LOSSES={config['MAX_CONSECUTIVE_LOSSES']} must be >= 1"
+        )
+    if not (0.0 <= config["ROLLBACK_MIN_SHARPE"] <= 10.0):
+        errors.append(
+            f"ROLLBACK_MIN_SHARPE={config['ROLLBACK_MIN_SHARPE']} must be in [0.0, 10.0]"
+        )
+    if not (0.0 <= config["ROLLBACK_MIN_ACCURACY"] <= 1.0):
+        errors.append(
+            f"ROLLBACK_MIN_ACCURACY={config['ROLLBACK_MIN_ACCURACY']} must be in [0.0, 1.0]"
+        )
+
+    if errors:
+        for err in errors:
+            logger.critical("Config validation error: %s", err)
+        sys.exit(1)
+
+    return config
+
+
 async def main():
     logger.info("Starting TitanFlow RiskGuardian...")
 
-    config = {
-        "MAX_DAILY_LOSS_PCT": float(os.getenv("RISK_MAX_DAILY_LOSS", 0.03)),
-        "RISK_PER_TRADE_PCT": float(os.getenv("RISK_PER_TRADE", 0.01)),
-        "MAX_CONSECUTIVE_LOSSES": int(os.getenv("CIRCUIT_BREAKER_CONSECUTIVE_LOSSES", 5)),
-        "ROLLBACK_MIN_SHARPE": float(os.getenv("ROLLBACK_MIN_SHARPE", 0.5)),
-        "ROLLBACK_MIN_ACCURACY": float(os.getenv("ROLLBACK_MIN_ACCURACY", 0.50)),
-    }
+    config = _load_and_validate_config()
 
     engine = RiskEngine(config)
     logger.info(

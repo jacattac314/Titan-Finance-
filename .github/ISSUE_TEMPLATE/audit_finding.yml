@@ -1,0 +1,112 @@
+name: Audit Finding
+description: Report a goal misalignment, quality issue, or policy violation identified during a code review or periodic audit.
+title: "[AUDIT] "
+labels:
+  - audit-finding
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to document findings from PR reviews or periodic audits.
+        For **security vulnerabilities**, use GitHub Security Advisories instead of this form.
+        See [`.github/AUDIT_TEAM.md`](../AUDIT_TEAM.md) for team charter and escalation paths.
+
+  - type: dropdown
+    id: finding_area
+    attributes:
+      label: Finding Area
+      description: Which audit domain does this finding belong to?
+      options:
+        - Roadmap Alignment
+        - Risk Control Integrity
+        - Signal Explainability
+        - Code Quality
+        - Security Posture
+        - Operational Readiness
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How critical is this finding?
+      options:
+        - "Critical — blocks merge or production deployment"
+        - "High — must be resolved before next phase milestone"
+        - "Medium — should be resolved within current phase"
+        - "Low — improvement opportunity, can be scheduled"
+    validations:
+      required: true
+
+  - type: input
+    id: related_pr
+    attributes:
+      label: Related PR or Commit
+      description: Link to the PR or commit where this finding was identified.
+      placeholder: "e.g. #123 or commit SHA"
+    validations:
+      required: false
+
+  - type: textarea
+    id: finding_description
+    attributes:
+      label: Finding Description
+      description: |
+        Describe the issue clearly. Include:
+        - What was observed
+        - Which file(s) or code path(s) are affected
+        - Which audit goal or policy this violates (reference `.github/AUDIT_TEAM.md`)
+      placeholder: |
+        Example: The signal service's `publish_signal()` function does not include the `model_id` field in its output payload, violating the typed signal schema requirement (Signal Explainability goal). Affected file: services/signal/publisher.py:42
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Paste relevant code snippets, logs, test output, or screenshots that demonstrate the finding.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: recommended_action
+    attributes:
+      label: Recommended Action
+      description: What change is needed to resolve this finding? Be specific.
+      placeholder: |
+        Example: Add `model_id` to the signal payload dataclass and update `publish_signal()` to include it. Add a contract test that asserts `model_id` is always present in the published Redis message.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: resolution_path
+    attributes:
+      label: Resolution Path
+      description: How should this finding be resolved?
+      options:
+        - "Fix required before merge"
+        - "Fix required before phase milestone"
+        - "Accepted with documented rationale (explain in comments)"
+        - "Tracked as separate work item"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: audit_checklist
+    attributes:
+      label: Audit Checklist Verification
+      description: Confirm which goal areas this finding affects.
+      options:
+        - label: Roadmap phase alignment
+        - label: Risk/execution pipeline contract
+        - label: Signal explainability and typed schema
+        - label: CI checks (lint, typecheck, test, Docker build)
+        - label: Secrets or credential handling
+        - label: Dependency security
+        - label: Health endpoints / operational readiness
+        - label: Documentation (env vars, ports, schema changes)
