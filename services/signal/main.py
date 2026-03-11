@@ -58,19 +58,31 @@ async def run_signal_engine(redis_client):
     
     # 1. Initialize Strategies
     # In a real app, load from DB/Config
-    strategies = [
-        SMACrossover({"symbol": "SPY", "fast_period": 10, "slow_period": 30, "model_id": "sma_spy"}),
-        LightGBMStrategy({"symbol": "SPY", "model_id": "lgb_spy_v1", "confidence_threshold": 0.6}),
-        LSTMStrategy({"symbol": "SPY", "model_id": "lstm_spy_v1", "lookback": 60}),
-        TFTStrategy({"symbol": "SPY", "model_id": "tft_spy_v1", "lookback": 60}),
-        LogisticRegressionStrategy({"symbol": "SPY", "model_id": "logreg_spy_v1", "confidence_threshold": 0.58}),
-        RandomForestStrategy({"symbol": "SPY", "model_id": "rf_spy_v1", "confidence_threshold": 0.62})
+    strategies = []
+    strategy_configs = [
+        (SMACrossover, {"symbol": "SPY", "fast_period": 10, "slow_period": 30, "model_id": "sma_spy"}),
+        (LightGBMStrategy, {"symbol": "SPY", "model_id": "lgb_spy_v1", "confidence_threshold": 0.6}),
+        (LSTMStrategy, {"symbol": "SPY", "model_id": "lstm_spy_v1", "lookback": 60}),
+        (TFTStrategy, {"symbol": "SPY", "model_id": "tft_spy_v1", "lookback": 60}),
+        (LogisticRegressionStrategy, {"symbol": "SPY", "model_id": "logreg_spy_v1", "confidence_threshold": 0.58}),
+        (RandomForestStrategy, {"symbol": "SPY", "model_id": "rf_spy_v1", "confidence_threshold": 0.62}),
     ]
-    
+    for cls, cfg in strategy_configs:
+        try:
+            strategies.append(cls(cfg))
+        except Exception as exc:
+            logger.error("Failed to initialise strategy %s: %s. Skipping.", cls.__name__, exc)
+
+    if not strategies:
+        logger.critical("No strategies initialised — signal service cannot run.")
+        return
+
+    logger.info("Loaded %d/%d strategies.", len(strategies), len(strategy_configs))
+
     # 2. Subscribe to Market Data
     pubsub = redis_client.pubsub()
     await pubsub.subscribe("market_data")
-    logger.info(f"Loaded {len(strategies)} strategies. Listening for market data...")
+    logger.info("Listening for market data...")
 
     set_ready(True)
 
