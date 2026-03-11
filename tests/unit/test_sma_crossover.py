@@ -106,6 +106,37 @@ class TestGoldenCross:
         for field in ("model_id", "model_name", "symbol", "signal", "confidence", "price"):
             assert field in sig, f"Missing field '{field}' in signal"
 
+    def test_confidence_is_in_unit_range(self):
+        """Confidence must be in [0, 1]; it should NOT be hardcoded to 1.0."""
+        s = make_strategy()
+        falling = [100.0, 99.0, 98.0, 97.0, 96.0, 95.0, 94.0, 93.0, 92.0, 91.0]
+        for p in falling:
+            run(s.on_tick(tick(p)))
+        rising = [110.0, 115.0, 120.0, 125.0, 130.0]
+        sig = None
+        for p in rising:
+            sig = run(s.on_tick(tick(p)))
+            if sig is not None:
+                break
+        assert sig is not None
+        assert 0.0 <= sig["confidence"] <= 1.0, \
+            f"confidence={sig['confidence']} is outside [0, 1]"
+
+    def test_confidence_not_hardcoded_to_one(self):
+        """A small MA spread must produce confidence < 1.0 (not blindly 1.0)."""
+        s = make_strategy()
+        # Feed prices that cause a tiny spread between fast and slow SMA
+        prices = [100.0] * SLOW  # equal SMAs first
+        prices += [100.1, 100.2, 100.3, 100.4, 100.5]  # tiny upward nudge
+        sig = None
+        for p in prices:
+            sig = run(s.on_tick(tick(p)))
+            if sig is not None and sig["signal"] == "BUY":
+                break
+        if sig is not None:
+            assert sig["confidence"] < 1.0, \
+                "A tiny MA spread should yield confidence < 1.0"
+
 
 # ---------------------------------------------------------------------------
 # Death cross → SELL
