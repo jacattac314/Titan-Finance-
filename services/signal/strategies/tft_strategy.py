@@ -11,6 +11,14 @@ from models.tft_model import TFTModel
 
 logger = logging.getLogger("TitanTFT")
 
+# Expected feature columns that must be present for TFT inference.
+_REQUIRED_FEATURES = [
+    'open', 'high', 'low', 'close', 'volume',
+    'RSI', 'MACD', 'MACD_line', 'MACD_signal',
+    'log_ret', 'ATR', 'BBU', 'BBL', 'BBM',
+]
+
+
 class TFTStrategy(Strategy):
     """
     Temporal Fusion Transformer (TFT) Strategy.
@@ -73,27 +81,33 @@ class TFTStrategy(Strategy):
         if len(df) < self.lookback:
             return None
 
+        # Validate that all required feature columns are present before slicing.
+        missing = [c for c in _REQUIRED_FEATURES if c not in df.columns]
+        if missing:
+            logger.error(
+                "Feature validation failed for %s: missing columns %s.",
+                self.symbol, missing,
+            )
+            return None
+
         # Prepare Input
-        cols = ['open', 'high', 'low', 'close', 'volume', 'RSI', 'MACD', 'MACD_line', 'MACD_signal', 'log_ret', 'ATR', 'BBU', 'BBL', 'BBM']
-        # Select available columns (expecting all 14)
-        available_cols = [c for c in cols if c in df.columns]
-        recent_data = df[available_cols].iloc[-self.lookback:].values # [60, 14]
-        
+        recent_data = df[_REQUIRED_FEATURES].iloc[-self.lookback:].values  # [60, 14]
+
         # Scale (using simple standardization, same as training script)
         mean = np.mean(recent_data, axis=0)
         std = np.std(recent_data, axis=0) + 1e-8
         scaled_data = (recent_data - mean) / std
-        
-        tensor_in = torch.FloatTensor(scaled_data).unsqueeze(0).to(self.device) # [1, 60, 14]
-        
+
+        tensor_in = torch.FloatTensor(scaled_data).unsqueeze(0).to(self.device)  # [1, 60, 14]
+
         # Inference
         with torch.no_grad():
             # Output is [1, 5] (predictions for next 5 steps in scaled space)
-            predictions = self.model(tensor_in).squeeze(0).cpu().numpy() # [60]
-            
+            predictions = self.model(tensor_in).squeeze(0).cpu().numpy()  # [60]
+
         # Interpret
         # The model was trained to predict the scaled 'close' price.
-        close_idx = available_cols.index('close')
+        close_idx = _REQUIRED_FEATURES.index('close')
         current_scaled_close = scaled_data[-1, close_idx]
         
         # Use the final prediction (t+60) as the 1-hour forecast
