@@ -29,7 +29,7 @@ from schemas import (
     validate_and_log,
     SCHEMA_VERSION,
 )
-from health import run_health_server, set_ready
+from health import run_health_server, set_ready, register_liveness_check
 
 load_dotenv()
 
@@ -410,6 +410,15 @@ async def main():
     except Exception as exc:
         logger.error(f"Failed to connect to Redis: {exc}")
         return
+
+    async def _check_redis() -> tuple[bool, str | None]:
+        try:
+            await redis_client.ping()
+            return True, None
+        except Exception as exc:
+            return False, str(exc)
+
+    register_liveness_check(_check_redis)
 
     execution_mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
     if execution_mode == "live":

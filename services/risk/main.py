@@ -216,7 +216,7 @@ async def main():
                 continue
 
             stop_loss = price * (0.98 if signal_event.signal == "BUY" else 1.02)
-            units = engine.calculate_position_size(price, stop_loss)
+            units = engine.calculate_position_size(price, stop_loss, symbol=signal_event.symbol)
 
             if units <= 0:
                 logger.info(f"Position size=0 for {signal_event.symbol} — skipping.")
