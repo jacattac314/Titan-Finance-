@@ -1,0 +1,57 @@
+# CODEOWNERS — TitanFlow Audit Team
+#
+# Each line maps a path pattern to one or more owners (GitHub usernames or teams).
+# The last matching pattern takes precedence.
+# Owners are automatically requested for review on PRs that touch their paths.
+#
+# Team handles: @jacattac314/audit-team
+# For role definitions and goals, see .github/AUDIT_TEAM.md
+
+# --- Default: full audit team reviews everything ---
+*                                   @jacattac314/audit-team
+
+# --- Market Data & Gateway ---
+/services/gateway/                  @jacattac314/audit-team @jacattac314/infrastructure-reviewers
+
+# --- AI Signal Generation & ML Models ---
+/services/signal/                   @jacattac314/audit-team @jacattac314/signal-ml-reviewers
+
+# --- Risk Management & Kill-Switch ---
+/services/risk/                     @jacattac314/audit-team @jacattac314/risk-compliance-reviewers
+
+# --- Trade Execution Engine ---
+/services/execution/                @jacattac314/audit-team @jacattac314/risk-compliance-reviewers
+
+# --- Shared Utilities & Schemas ---
+/shared/                            @jacattac314/audit-team
+/storage/                           @jacattac314/audit-team @jacattac314/infrastructure-reviewers
+
+# --- Dashboard & Frontend ---
+/dashboard/                         @jacattac314/audit-team @jacattac314/dashboard-reviewers
+/legacy_frontend/                   @jacattac314/audit-team @jacattac314/dashboard-reviewers
+
+# --- Infrastructure & DevOps ---
+docker-compose.yml                  @jacattac314/audit-team @jacattac314/infrastructure-reviewers
+Dockerfile                          @jacattac314/audit-team @jacattac314/infrastructure-reviewers
+**/Dockerfile                       @jacattac314/audit-team @jacattac314/infrastructure-reviewers
+
+# --- CI/CD Pipelines ---
+/.github/workflows/                 @jacattac314/audit-team @jacattac314/infrastructure-reviewers
+
+# --- Security-Sensitive Files ---
+.env.example                        @jacattac314/audit-team @jacattac314/security-reviewers
+SECURITY.md                         @jacattac314/audit-team @jacattac314/security-reviewers
+**/requirements.txt                 @jacattac314/audit-team @jacattac314/security-reviewers
+**/package.json                     @jacattac314/audit-team @jacattac314/security-reviewers
+**/package-lock.json                @jacattac314/audit-team @jacattac314/security-reviewers
+
+# --- Documentation & Governance ---
+/docs/                              @jacattac314/audit-team
+README.md                           @jacattac314/audit-team
+CONTRIBUTING.md                     @jacattac314/audit-team
+ROADMAP.md                          @jacattac314/audit-team
+CODE_OF_CONDUCT.md                  @jacattac314/audit-team
+CODEOWNERS                          @jacattac314/audit-team
+
+# --- Tests ---
+/tests/                             @jacattac314/audit-team
