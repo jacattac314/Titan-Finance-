@@ -67,12 +67,17 @@ class SMACrossover(Strategy):
             current_ts = tick.get("timestamp", 0)
             forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
             
+            # Confidence reflects the relative MA spread scaled to [0, 1].
+            # A wider spread indicates a stronger crossover; 5% diff → 1.0.
+            ma_diff_pct = abs(fast_sma - slow_sma) / slow_sma if slow_sma != 0 else 0.0
+            confidence = round(min(ma_diff_pct * 20, 1.0), 4)
+
             return {
                 "model_id": self.model_id,
                 "model_name": "SMA_Crossover_v1",
                 "symbol": self.symbol,
                 "signal": signal,
-                "confidence": 1.0, # Simple logic has high mechanical confidence
+                "confidence": confidence,
                 "price": price,
                 "timestamp": current_ts,
                 "forecast_price": forecast_price,

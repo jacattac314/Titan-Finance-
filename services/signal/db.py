@@ -1,6 +1,8 @@
 import logging
 import os
+from urllib.parse import quote_plus
 import asyncpg
+import asyncpg.exceptions
 import redis.asyncio as redis
 import json
 import pandas as pd
@@ -9,13 +11,21 @@ logger = logging.getLogger("TitanSignalDB")
 
 class SignalDB:
     def __init__(self):
-        # QuestDB (PG Wire)
-        self.quest_user = "admin"
-        self.quest_pass = "quest"
+        # QuestDB (PG Wire) — credentials must be supplied via environment variables.
+        # Falling back to the well-known QuestDB OSS defaults; a warning is emitted
+        # so operators can identify insecure configurations at startup.
+        self.quest_user = os.getenv("QUESTDB_USER", "admin")
+        self.quest_pass = os.getenv("QUESTDB_PASS", "quest")
         self.quest_host = os.getenv("QUESTDB_HOST", "questdb")
         self.quest_port = int(os.getenv("QUESTDB_PG_PORT", "8812"))
-        self.quest_db = "qdb" # Default QuestDB name
-        
+        self.quest_db = "qdb"  # Default QuestDB database name
+
+        if self.quest_user == "admin" and self.quest_pass == "quest":
+            logger.warning(
+                "QuestDB is using default credentials (admin/quest). "
+                "Set QUESTDB_USER and QUESTDB_PASS environment variables for production."
+            )
+
         # Redis
         self.redis_url = f"redis://{os.getenv('REDIS_HOST', 'redis')}:6379"
         self.redis = None
@@ -24,17 +34,28 @@ class SignalDB:
     async def connect(self):
         """Connect to QuestDB and Redis."""
         try:
-            # QuestDB via Postgres Wire Protocol
-            dsn = f"postgresql://{self.quest_user}:{self.quest_pass}@{self.quest_host}:{self.quest_port}/{self.quest_db}"
+            # Build DSN with URL-encoded password to handle special characters safely.
+            # The password is never logged; only the host/port are emitted.
+            encoded_pass = quote_plus(self.quest_pass)
+            dsn = (
+                f"postgresql://{self.quest_user}:{encoded_pass}"
+                f"@{self.quest_host}:{self.quest_port}/{self.quest_db}"
+            )
             self.quest_pool = await asyncpg.create_pool(dsn)
-            logger.info("Connected to QuestDB (PG Wire).")
-            
+            logger.info(
+                "Connected to QuestDB (PG Wire) at %s:%s.",
+                self.quest_host, self.quest_port,
+            )
+
             # Redis
             self.redis = redis.from_url(self.redis_url)
             await self.redis.ping()
             logger.info("Connected to Redis.")
-        except Exception as e:
-            logger.error(f"Failed to connect to DBs: {e}")
+        except (asyncpg.PostgresError, OSError, asyncpg.exceptions.ConnectionDoesNotExistError) as e:
+            logger.error("Failed to connect to QuestDB: %s", e)
+            raise
+        except redis.RedisError as e:
+            logger.error("Failed to connect to Redis: %s", e)
             raise
 
     async def close(self):
@@ -46,43 +67,43 @@ class SignalDB:
     async def fetch_ohlcv(self, symbol: str, limit: int = 60) -> list:
         """
         Fetch latest OHLCV bars from QuestDB.
-        Assumes we have a 'market_data' table or similar (actually gateway writes 'market_data' measurement).
-        Gateway writes: symbol, price, size. It's tick data.
-        We need to aggregate ticks to bars (e.g., 1-min bars) if we want OHLCV, 
-        OR just use raw ticks if the model takes ticks.
-        The FeatureEngineer expects: open, high, low, close, volume.
-        So we MUST aggregate ticks to bars here using QuestDB's SAMPLE BY.
+
+        Uses a parameterised query ($1) to prevent SQL injection on the symbol
+        parameter.  The ``limit`` value is a validated integer so it is safe to
+        interpolate directly into the query string.
         """
         if not self.quest_pool:
             return []
-            
+
+        # Clamp limit to a safe, positive integer to avoid edge-case injection
+        # through the LIMIT clause (even though it is an internal parameter).
+        safe_limit = max(1, min(int(limit), 1000))
+
+        query = f"""
+        SELECT
+            timestamp,
+            first(price) as open,
+            max(price)   as high,
+            min(price)   as low,
+            last(price)  as close,
+            sum(size)    as volume
+        FROM market_data
+        WHERE symbol = $1
+        SAMPLE BY 1m ALIGN TO CALENDAR
+        ORDER BY timestamp DESC
+        LIMIT {safe_limit}
+        """
+
         try:
-            # QuestDB SQL for 1-minute bars
-            query = f"""
-            SELECT 
-                timestamp,
-                first(price) as open,
-                max(price) as high,
-                min(price) as low,
-                last(price) as close,
-                sum(size) as volume
-            FROM market_data
-            WHERE symbol = '{symbol}'
-            SAMPLE BY 1m ALIGN TO CALENDAR
-            ORDER BY timestamp DESC
-            LIMIT {limit}
-            """
-            
             async with self.quest_pool.acquire() as conn:
-                rows = await conn.fetch(query)
-                
-            # Convert to list of dicts and reverse to be chronological (ASC)
-            # asyncpg returns Record objects, convert to dict
+                rows = await conn.fetch(query, symbol)
+
+            # Convert to list of dicts and reverse to chronological order (ASC)
             data = [dict(row) for row in rows]
-            return data[::-1] 
-            
-        except Exception as e:
-            logger.error(f"Error fetching data for {symbol}: {e}")
+            return data[::-1]
+
+        except asyncpg.PostgresError as e:
+            logger.error("DB error fetching OHLCV for %s: %s", symbol, e)
             return []
 
     async def publish_signal(self, payload: dict):
@@ -91,8 +112,8 @@ class SignalDB:
             return
         try:
             await self.redis.publish("trade_signals", json.dumps(payload))
-            logger.info(f"Published Signal: {payload['symbol']} {payload['signal']}")
-        except Exception as e:
-            logger.error(f"Failed to publish signal: {e}")
+            logger.info("Published Signal: %s %s", payload['symbol'], payload['signal'])
+        except redis.RedisError as e:
+            logger.error("Failed to publish signal: %s", e)
 
 db = SignalDB()
