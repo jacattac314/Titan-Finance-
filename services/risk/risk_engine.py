@@ -19,7 +19,7 @@ Configuration (env vars / config dict):
 
 import logging
 import math
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger("TitanRisk")
 
@@ -119,7 +119,13 @@ class RiskEngine:
     # Position sizing
     # ------------------------------------------------------------------
 
-    def calculate_position_size(self, entry_price: float, stop_loss: float) -> int:
+    def calculate_position_size(
+        self,
+        entry_price: float,
+        stop_loss: float,
+        open_positions: Optional[Dict[str, int]] = None,
+        symbol: Optional[str] = None,
+    ) -> int:
         """
         Fixed-Fractional position sizing.
             Units = floor( equity × risk_per_trade_pct / risk_per_share )
@@ -136,7 +142,15 @@ class RiskEngine:
             logger.error("Invalid stop_loss: equal to entry_price. Returning 0.")
             return 0
 
-        return math.floor(risk_amount / risk_per_share)
+        base_units = math.floor(risk_amount / risk_per_share)
+
+        # Apply per-symbol concentration cap
+        if open_positions and symbol:
+            existing_qty = open_positions.get(symbol, 0)
+            max_per_symbol = math.floor(self.current_equity / entry_price * 0.25)  # 25% max per symbol
+            base_units = max(0, min(base_units, max_per_symbol - existing_qty))
+
+        return base_units
 
     # ------------------------------------------------------------------
     # Signal validation
