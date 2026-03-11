@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import sys
 
 import redis.asyncio as redis
@@ -28,7 +29,7 @@ from schemas import (
     validate_and_log,
     SCHEMA_VERSION,
 )
-from health import run_health_server, set_ready
+from health import run_health_server, set_ready, register_liveness_check
 
 load_dotenv()
 
@@ -87,6 +88,31 @@ def _load_and_validate_config() -> dict:
     return config
 
 
+_MAX_REDIS_RETRIES = 5
+
+
+async def _connect_redis_with_retry(url: str, logger):
+    """Connect to Redis with exponential backoff. Returns client or raises."""
+    for attempt in range(1, _MAX_REDIS_RETRIES + 1):
+        try:
+            client = redis.from_url(url)
+            await client.ping()
+            logger.info("Connected to Redis (attempt %d).", attempt)
+            return client
+        except Exception as exc:
+            if attempt == _MAX_REDIS_RETRIES:
+                logger.critical(
+                    "Redis connection failed after %d attempts: %s", attempt, exc
+                )
+                raise
+            wait = (2 ** attempt) + random.random()
+            logger.warning(
+                "Redis connection attempt %d/%d failed: %s. Retrying in %.1fs...",
+                attempt, _MAX_REDIS_RETRIES, exc, wait,
+            )
+            await asyncio.sleep(wait)
+
+
 async def main():
     logger.info("Starting TitanFlow RiskGuardian...")
 
@@ -102,14 +128,21 @@ async def main():
     # --- Connect to Redis ---
     redis_host = os.getenv("REDIS_HOST", "redis")
     try:
-        r = redis.from_url(f"redis://{redis_host}:6379")
-        await r.ping()
-        pubsub = r.pubsub()
-        await pubsub.subscribe("trade_signals", "execution_filled")
-        logger.info("Connected to Redis. Subscribed to [trade_signals, execution_filled].")
-    except Exception as exc:
-        logger.error(f"Failed to connect to Redis: {exc}")
+        r = await _connect_redis_with_retry(f"redis://{redis_host}:6379", logger)
+    except Exception:
         return
+    pubsub = r.pubsub()
+    await pubsub.subscribe("trade_signals", "execution_filled")
+    logger.info("Subscribed to [trade_signals, execution_filled].")
+
+    async def _check_redis() -> tuple[bool, str | None]:
+        try:
+            await r.ping()
+            return True, None
+        except Exception as exc:
+            return False, str(exc)
+
+    register_liveness_check(_check_redis)
 
     signals_processed = 0
 

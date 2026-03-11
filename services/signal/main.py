@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import sys
 import redis.asyncio as redis
 from dotenv import load_dotenv
@@ -26,6 +27,31 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger("TitanSignalService")
+
+_MAX_REDIS_RETRIES = 5
+
+
+async def _connect_redis_with_retry(url: str, logger):
+    """Connect to Redis with exponential backoff. Returns client or raises."""
+    for attempt in range(1, _MAX_REDIS_RETRIES + 1):
+        try:
+            client = redis.from_url(url)
+            await client.ping()
+            logger.info("Connected to Redis (attempt %d).", attempt)
+            return client
+        except Exception as exc:
+            if attempt == _MAX_REDIS_RETRIES:
+                logger.critical(
+                    "Redis connection failed after %d attempts: %s", attempt, exc
+                )
+                raise
+            wait = (2 ** attempt) + random.random()
+            logger.warning(
+                "Redis connection attempt %d/%d failed: %s. Retrying in %.1fs...",
+                attempt, _MAX_REDIS_RETRIES, exc, wait,
+            )
+            await asyncio.sleep(wait)
+
 
 async def run_signal_engine(redis_client):
     logger.info("Initializing Signal Engine...")
@@ -89,13 +115,9 @@ async def run_signal_engine(redis_client):
 async def main():
     logger.info("Starting TitanFlow SignalEngine...")
     redis_host = os.getenv("REDIS_HOST", "redis")
-    redis_client = redis.from_url(f"redis://{redis_host}:6379")
-    
     try:
-        await redis_client.ping()
-        logger.info("Connected to Redis.")
-    except Exception as e:
-        logger.error(f"Failed to connect to Redis: {e}")
+        redis_client = await _connect_redis_with_retry(f"redis://{redis_host}:6379", logger)
+    except Exception:
         return
 
     await asyncio.gather(
