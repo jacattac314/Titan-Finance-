@@ -9,7 +9,7 @@ load_dotenv()
 
 from db import db
 from schemas import MarketDataEvent, validate_and_log
-from health import run_health_server, set_ready
+from health import run_health_server, set_ready, register_liveness_check
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -55,6 +55,29 @@ async def main():
     except Exception as e:
         logger.error(f"Infrastructure connection failed: {e}")
         return
+
+    async def _check_redis() -> tuple[bool, str | None]:
+        try:
+            await db.redis.ping()
+            return True, None
+        except Exception as exc:
+            return False, str(exc)
+
+    async def _check_questdb() -> tuple[bool, str | None]:
+        try:
+            loop = asyncio.get_running_loop()
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(db.quest_host, db.quest_port),
+                timeout=2.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True, None
+        except Exception as exc:
+            return False, str(exc)
+
+    register_liveness_check(_check_redis)
+    register_liveness_check(_check_questdb)
 
     # 2. Initialize Provider
     provider_type = os.getenv("DATA_PROVIDER", "synthetic").lower()

@@ -17,7 +17,7 @@ from strategies.random_forest_strategy import RandomForestStrategy
 
 # Shared schemas and health server
 from schemas import MarketDataEvent, TradeSignalEvent, validate_and_log, SCHEMA_VERSION
-from health import run_health_server, set_ready
+from health import run_health_server, set_ready, register_liveness_check
 
 load_dotenv()
 
@@ -119,6 +119,15 @@ async def main():
         redis_client = await _connect_redis_with_retry(f"redis://{redis_host}:6379", logger)
     except Exception:
         return
+
+    async def _check_redis() -> tuple[bool, str | None]:
+        try:
+            await redis_client.ping()
+            return True, None
+        except Exception as exc:
+            return False, str(exc)
+
+    register_liveness_check(_check_redis)
 
     await asyncio.gather(
         run_health_server(service="titan-signal"),

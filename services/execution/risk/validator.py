@@ -18,19 +18,46 @@ class OrderValidator:
         Returns True if order is accepted, False if rejected.
         """
         if qty <= 0 or signal_price <= 0:
-            logger.warning(f"REJECTED: Invalid qty/price ({qty} @ {signal_price})")
+            logger.warning(
+                "Order rejected: %s",
+                "zero_qty",
+                extra={
+                    "reason": "zero_qty",
+                    "symbol": symbol,
+                    "qty": qty,
+                    "signal_price": signal_price,
+                },
+            )
             return False
 
         # 1. Buying Power Check
         estimated_cost = qty * signal_price
         if side == "BUY":
             if portfolio.cash < estimated_cost:
-                logger.warning(f"REJECTED: Insufficient Cash (Need ${estimated_cost:.2f}, Have ${portfolio.cash:.2f})")
+                logger.warning(
+                    "Order rejected: %s",
+                    "insufficient_cash",
+                    extra={
+                        "reason": "insufficient_cash",
+                        "symbol": symbol,
+                        "required": estimated_cost,
+                        "available": portfolio.cash,
+                    },
+                )
                 return False
 
         # 2. Max Order Value Check
         if estimated_cost > self.MAX_ORDER_VALUE:
-            logger.warning(f"REJECTED: Order Value ${estimated_cost:.2f} exceeds limit ${self.MAX_ORDER_VALUE}")
+            logger.warning(
+                "Order rejected: %s",
+                "order_value_exceeded",
+                extra={
+                    "reason": "order_value_exceeded",
+                    "symbol": symbol,
+                    "order_value": estimated_cost,
+                    "max_order_value": self.MAX_ORDER_VALUE,
+                },
+            )
             return False
 
         # 3. Dynamic Concentration Check
@@ -55,7 +82,16 @@ class OrderValidator:
             max_pos_size = estimated_equity * self.MAX_CONCENTRATION
             
             if new_val > max_pos_size:
-                 logger.warning(f"REJECTED: Position size ${new_val:.2f} would exceed {self.MAX_CONCENTRATION*100}% of portfolio equity (${max_pos_size:.2f})")
-                 return False
+                logger.warning(
+                    "Order rejected: %s",
+                    "position_limit_exceeded",
+                    extra={
+                        "reason": "position_limit_exceeded",
+                        "symbol": symbol,
+                        "new_position_value": new_val,
+                        "max_position_value": max_pos_size,
+                    },
+                )
+                return False
 
         return True
