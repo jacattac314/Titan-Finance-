@@ -11,6 +11,19 @@ from .base import Strategy
 
 logger = logging.getLogger("TitanRandomForest")
 
+# Expected feature columns that must be present for RandomForest inference.
+_REQUIRED_FEATURES = [
+    "RSI",
+    "MACD",
+    "MACD_line",
+    "MACD_signal",
+    "log_ret",
+    "ATR",
+    "BBU",
+    "BBL",
+    "BBM",
+]
+
 
 class RandomForestStrategy(Strategy):
     """Adaptive random forest classifier over rolling market features."""
@@ -44,7 +57,7 @@ class RandomForestStrategy(Strategy):
         if feats["target"].nunique() < 2:
             return
 
-        feature_cols = ["RSI", "MACD", "MACD_line", "MACD_signal", "log_ret", "ATR", "BBU", "BBL", "BBM"]
+        feature_cols = _REQUIRED_FEATURES
         X = feats[feature_cols].to_numpy()
         y = feats["target"].to_numpy()
         self.model.fit(X, y)
@@ -72,7 +85,14 @@ class RandomForestStrategy(Strategy):
             return None
 
         last = features_df.iloc[[-1]]
-        feature_cols = ["RSI", "MACD", "MACD_line", "MACD_signal", "log_ret", "ATR", "BBU", "BBL", "BBM"]
+        missing = [c for c in _REQUIRED_FEATURES if c not in features_df.columns]
+        if missing:
+            logger.error(
+                "Feature validation failed for %s: missing columns %s.",
+                self.symbol, missing,
+            )
+            return None
+        feature_cols = _REQUIRED_FEATURES
         prob_up = float(self.model.predict_proba(last[feature_cols].to_numpy())[0][1])
 
         if prob_up > self.confidence_threshold:
