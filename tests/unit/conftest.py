@@ -16,11 +16,13 @@ if _SHARED_ROOT not in sys.path:
     sys.path.insert(0, _SHARED_ROOT)
 
 # Services that have unit tests
+# services/risk must be last so that insert(0, ...) places it at the front of
+# sys.path, ensuring its main.py is resolved before any other service's main.py.
 _SERVICE_ROOTS = [
-    "services/risk",
     "services/execution",
     "services/signal",
     "services/gateway",
+    "services/risk",
 ]
 
 for _rel in _SERVICE_ROOTS:

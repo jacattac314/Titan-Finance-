@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, Deque
 from collections import deque
 import statistics
 import logging
+from datetime import datetime, timezone
 from .base import Strategy
 
 logger = logging.getLogger("TitanSMACrossover")
@@ -65,7 +66,11 @@ class SMACrossover(Strategy):
                 forecast_price = price
             
             current_ts = tick.get("timestamp", 0)
-            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            if isinstance(current_ts, (int, float)):
+                forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            else:
+                dt = datetime.fromisoformat(str(current_ts).replace('Z', '+00:00'))
+                forecast_timestamp = int(dt.timestamp() * 1000) + (60 * 60 * 1000)  # +1 hour in ms
             
             # Confidence reflects the relative MA spread scaled to [0, 1].
             # A wider spread indicates a stronger crossover; 5% diff → 1.0.
