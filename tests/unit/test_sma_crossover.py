@@ -30,8 +30,8 @@ def make_strategy(**overrides) -> SMACrossover:
     return SMACrossover(config)
 
 
-def tick(price: float) -> dict:
-    return {"price": price, "timestamp": "2024-01-01T00:00:00"}
+def tick(price: float, timestamp: int = 1_000_000) -> dict:
+    return {"price": price, "timestamp": timestamp}
 
 
 def run(coro):
@@ -166,11 +166,74 @@ class TestDuplicateSuppression:
 
 
 # ---------------------------------------------------------------------------
-# on_bar always returns None (not implemented yet)
+# on_bar — processes OHLCV bars using the close price
 # ---------------------------------------------------------------------------
 
+def bar(close: float, timestamp: int = 0) -> dict:
+    return {"open": close, "high": close, "low": close, "close": close, "volume": 1000, "timestamp": timestamp}
+
+
 class TestOnBar:
-    def test_on_bar_returns_none(self):
+    def test_returns_none_before_slow_period_bars(self):
         s = make_strategy()
-        result = run(s.on_bar({"open": 100, "high": 101, "low": 99, "close": 100, "volume": 1000}))
-        assert result is None
+        signals = [run(s.on_bar(bar(100.0))) for _ in range(SLOW - 1)]
+        assert all(sig is None for sig in signals)
+
+    def test_zero_close_returns_none(self):
+        s = make_strategy()
+        assert run(s.on_bar(bar(0.0))) is None
+
+    def test_negative_close_returns_none(self):
+        s = make_strategy()
+        assert run(s.on_bar(bar(-5.0))) is None
+
+    def test_emits_buy_on_golden_cross(self):
+        s = make_strategy()
+        for p in [100.0, 99.0, 98.0, 97.0, 96.0, 95.0, 94.0, 93.0, 92.0, 91.0]:
+            run(s.on_bar(bar(p)))
+        sig = None
+        for p in [110.0, 115.0, 120.0, 125.0, 130.0]:
+            sig = run(s.on_bar(bar(p)))
+            if sig is not None:
+                break
+        assert sig is not None
+        assert sig["signal"] == "BUY"
+        assert sig["symbol"] == "AAPL"
+
+    def test_emits_sell_on_death_cross(self):
+        s = make_strategy()
+        for p in [100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0]:
+            run(s.on_bar(bar(p)))
+        sig = None
+        for p in [80.0, 75.0, 70.0, 65.0, 60.0]:
+            sig = run(s.on_bar(bar(p)))
+            if sig is not None:
+                break
+        assert sig is not None
+        assert sig["signal"] == "SELL"
+
+    def test_signal_contains_required_fields(self):
+        s = make_strategy()
+        for p in [100.0, 99.0, 98.0, 97.0, 96.0, 95.0, 94.0, 93.0, 92.0, 91.0]:
+            run(s.on_bar(bar(p)))
+        sig = None
+        for p in [110.0, 115.0, 120.0, 125.0, 130.0]:
+            sig = run(s.on_bar(bar(p, timestamp=1000)))
+            if sig is not None:
+                break
+        assert sig is not None
+        for field in ("model_id", "model_name", "symbol", "signal", "confidence", "price",
+                      "forecast_price", "forecast_timestamp"):
+            assert field in sig, f"Missing field '{field}' in bar signal"
+        assert sig["forecast_timestamp"] == 1000 + 60 * 1000
+
+    def test_no_duplicate_signals(self):
+        s = make_strategy()
+        for p in [100.0, 99.0, 98.0, 97.0, 96.0, 95.0, 94.0, 93.0, 92.0, 91.0]:
+            run(s.on_bar(bar(p)))
+        signals = []
+        for p in [110.0, 115.0, 120.0, 125.0, 130.0]:
+            sig = run(s.on_bar(bar(p)))
+            if sig is not None:
+                signals.append(sig)
+        assert sum(1 for s_ in signals if s_["signal"] == "BUY") == 1

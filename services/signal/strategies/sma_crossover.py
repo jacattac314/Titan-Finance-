@@ -87,5 +87,51 @@ class SMACrossover(Strategy):
         return None
 
     async def on_bar(self, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        # Not using bars yet for this tick-based MVP
+        close = float(bar.get("close", 0.0))
+        if close <= 0:
+            return None
+
+        self.prices.append(close)
+
+        if len(self.prices) < self.slow_period:
+            return None
+
+        fast_sma = statistics.mean(list(self.prices)[-self.fast_period:])
+        slow_sma = statistics.mean(list(self.prices)[-self.slow_period:])
+
+        signal = None
+
+        if fast_sma > slow_sma and self.current_position != "LONG":
+            signal = "BUY"
+            self.current_position = "LONG"
+            logger.info(f"[{self.symbol}] Bar Golden Cross! Fast={fast_sma:.2f} > Slow={slow_sma:.2f}")
+        elif fast_sma < slow_sma and self.current_position != "SHORT":
+            signal = "SELL"
+            self.current_position = "SHORT"
+            logger.info(f"[{self.symbol}] Bar Death Cross! Fast={fast_sma:.2f} < Slow={slow_sma:.2f}")
+
+        if signal:
+            price_list = list(self.prices)
+            recent_fast = price_list[-self.fast_period:]
+            slope_per_bar = (recent_fast[-1] - recent_fast[0]) / max(len(recent_fast) - 1, 1)
+            forecast_price = round(close + slope_per_bar * 60, 2)
+
+            current_ts = bar.get("timestamp", 0)
+            forecast_timestamp = int(current_ts) + (60 * 1000)
+
+            ma_diff_pct = abs(fast_sma - slow_sma) / slow_sma if slow_sma != 0 else 0.0
+            confidence = round(min(ma_diff_pct * 20, 1.0), 4)
+
+            return {
+                "model_id": self.model_id,
+                "model_name": "SMA_Crossover_v1",
+                "symbol": self.symbol,
+                "signal": signal,
+                "confidence": confidence,
+                "price": close,
+                "timestamp": current_ts,
+                "forecast_price": forecast_price,
+                "forecast_timestamp": forecast_timestamp,
+            }
+
         return None
