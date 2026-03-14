@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TradeRecord } from "@/components/dashboard/types";
 
 interface TradeLogProps {
@@ -16,16 +16,35 @@ const getModelBadge = (modelId: string) => {
   return 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30';
 };
 
-const formatTime = (timestamp: number | string) => {
+function formatTimestamp(timestamp: number | string): string {
   const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) {
-    return "--:--:--";
-  }
-  return date.toISOString().substring(11, 19);
-};
+  if (Number.isNaN(date.getTime())) return "--:--:--";
+
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  const time = date.toISOString().substring(11, 19);
+  if (isToday) return time;
+
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}/${day} ${time}`;
+}
 
 export default function TradeLog({ trades }: TradeLogProps) {
   const [selectedExplanation, setSelectedExplanation] = useState<{ id: string, lines: string[], model: string } | null>(null);
+
+  useEffect(() => {
+    if (!selectedExplanation) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedExplanation(null);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedExplanation]);
 
   return (
     <div className="relative">
@@ -57,6 +76,7 @@ export default function TradeLog({ trades }: TradeLogProps) {
             >
               Close Analysis
             </button>
+            <p className="text-center text-xs text-zinc-600 mt-2">Press Esc to close</p>
           </div>
         </div>
       )}
@@ -88,47 +108,64 @@ export default function TradeLog({ trades }: TradeLogProps) {
                 </td>
               </tr>
             )}
-            {trades.map((trade) => (
-              <tr key={trade.id} className="hover:bg-cyan-950/20 transition-all duration-200 group relative">
-                <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                <td className="px-5 py-3 font-mono text-slate-400 group-hover:text-slate-300 transition-colors">{formatTime(trade.timestamp)}</td>
-                <td className="px-5 py-3 font-bold text-white tracking-wide">{trade.symbol}</td>
-                <td className={`px-5 py-3 font-extrabold tracking-wider ${trade.side.toUpperCase() === 'BUY' ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.3)]'}`}>
-                  {trade.side}
-                </td>
-                <td className="px-5 py-3">
-                  <span className={`px-2.5 py-1 rounded-md text-[10px] uppercase font-bold tracking-wider border shadow-sm ${getModelBadge(trade.modelId)}`}>
-                    {trade.modelName}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-slate-300 font-medium">{trade.qty}</td>
-                <td className="px-5 py-3 font-mono text-slate-200 group-hover:text-white transition-colors">
-                  ${Number(trade.price ?? 0) > 0 ? Number(trade.price ?? 0).toFixed(2) : '-'}
-                </td>
-                <td className={`px-5 py-3 font-mono font-semibold ${trade.realizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {Number(trade.realizedPnl ?? 0) === 0 ? '-' : `${Number(trade.realizedPnl ?? 0) > 0 ? '+' : ''}$${Number(trade.realizedPnl ?? 0).toFixed(2)}`}
-                </td>
-                <td className="px-4 py-3">
-                  {trade.explanation && trade.explanation.length > 0 ? (
-                    <button
-                      onClick={() => setSelectedExplanation({ id: trade.id, lines: trade.explanation!, model: trade.modelName })}
-                      className="flex items-center gap-1 text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1.5 rounded hover:bg-indigo-500/20 transition-all font-medium"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                      Analyze
-                    </button>
-                  ) : (
-                    <span className="text-zinc-600 text-xs">-</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded text-[10px] border ${trade.status === 'FILLED' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+            {trades.map((trade) => {
+              const isEod = trade.status === "EOD_LIQUIDATION";
+              return (
+                <tr
+                  key={trade.id}
+                  className={`transition-all duration-200 group relative ${
+                    isEod
+                      ? "bg-orange-950/20 hover:bg-orange-950/30"
+                      : "hover:bg-cyan-950/20"
+                  }`}
+                >
+                  <div className={`absolute left-0 top-0 bottom-0 w-[2px] opacity-0 group-hover:opacity-100 transition-opacity ${isEod ? "bg-orange-500" : "bg-cyan-500"}`}></div>
+                  <td className="px-5 py-3 font-mono text-slate-400 group-hover:text-slate-300 transition-colors whitespace-nowrap">
+                    {formatTimestamp(trade.timestamp)}
+                  </td>
+                  <td className="px-5 py-3 font-bold text-white tracking-wide">{trade.symbol}</td>
+                  <td className={`px-5 py-3 font-extrabold tracking-wider ${trade.side.toUpperCase() === 'BUY' ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.3)]'}`}>
+                    {trade.side}
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className={`px-2.5 py-1 rounded-md text-[10px] uppercase font-bold tracking-wider border shadow-sm ${getModelBadge(trade.modelId)}`}>
+                      {trade.modelName}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-slate-300 font-medium">{trade.qty}</td>
+                  <td className="px-5 py-3 font-mono text-slate-200 group-hover:text-white transition-colors">
+                    ${Number(trade.price ?? 0) > 0 ? Number(trade.price ?? 0).toFixed(2) : '-'}
+                  </td>
+                  <td className={`px-5 py-3 font-mono font-semibold ${trade.realizedPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {Number(trade.realizedPnl ?? 0) === 0 ? '-' : `${Number(trade.realizedPnl ?? 0) > 0 ? '+' : ''}$${Number(trade.realizedPnl ?? 0).toFixed(2)}`}
+                  </td>
+                  <td className="px-4 py-3">
+                    {trade.explanation && trade.explanation.length > 0 ? (
+                      <button
+                        onClick={() => setSelectedExplanation({ id: trade.id, lines: trade.explanation!, model: trade.modelName })}
+                        className="flex items-center gap-1 text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1.5 rounded hover:bg-indigo-500/20 transition-all font-medium"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Analyze
+                      </button>
+                    ) : (
+                      <span className="text-zinc-600 text-xs">-</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded text-[10px] border ${
+                      isEod
+                        ? 'bg-orange-500/10 text-orange-400 border-orange-500/20'
+                        : trade.status === 'FILLED'
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
                     }`}>
-                    {trade.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
+                      {isEod ? "EOD" : trade.status}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

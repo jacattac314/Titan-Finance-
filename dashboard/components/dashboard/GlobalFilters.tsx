@@ -9,6 +9,13 @@ interface GlobalFiltersProps {
   onChange: (next: FilterState) => void;
 }
 
+const DEFAULT_FILTERS: FilterState = {
+  symbol: "ALL",
+  model: "ALL",
+  signalType: "ALL",
+  timeRange: "1H",
+};
+
 const timeRanges: TimeRange[] = ["15M", "1H", "4H", "1D"];
 
 export default function GlobalFilters({ filters, symbols, models, onChange }: GlobalFiltersProps) {
@@ -80,6 +87,17 @@ export default function GlobalFilters({ filters, symbols, models, onChange }: Gl
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="flex items-end">
+          <button
+            type="button"
+            onClick={() => onChange(DEFAULT_FILTERS)}
+            className="px-3 py-2 rounded-md text-xs font-semibold border bg-white/5 text-slate-400 border-white/10 hover:bg-white/10 hover:text-white transition whitespace-nowrap"
+            title="Reset all filters to defaults"
+          >
+            Reset
+          </button>
         </div>
       </div>
     </div>

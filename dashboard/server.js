@@ -94,6 +94,16 @@ app.prepare().then(async () => {
             }
         });
 
+        socket.on("kill_switch", () => {
+            console.warn("KILL SWITCH activated by client:", socket.id);
+            io.emit("kill_activated");
+        });
+
+        socket.on("kill_resume", () => {
+            console.log("Kill switch RESUMED by client:", socket.id);
+            io.emit("kill_resumed");
+        });
+
         socket.on("disconnect", () => {
             console.log("Client disconnected:", socket.id);
         });

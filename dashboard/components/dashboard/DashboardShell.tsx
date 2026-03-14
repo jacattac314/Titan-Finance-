@@ -180,6 +180,8 @@ export default function DashboardShell() {
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [prices, setPrices] = useState<PriceRecord[]>([]);
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
+  const [halted, setHalted] = useState<boolean>(false);
+  const [hideHolds, setHideHolds] = useState<boolean>(true);
   const [status, setStatus] = useState<InternalStatus>({
     socketConnected: false,
     redisConnected: false,
@@ -194,6 +196,7 @@ export default function DashboardShell() {
   const drawdownStateRef = useRef<Record<string, DrawdownState>>({});
   const signalsRef = useRef<SignalRecord[]>([]);
   const receivedLiveDataRef = useRef(false);
+  const socketRef = useRef<ReturnType<typeof io> | null>(null);
 
   useEffect(() => {
     signalsRef.current = signals;
@@ -204,6 +207,7 @@ export default function DashboardShell() {
       path: "/api/socket/io",
       addTrailingSlash: false,
     });
+    socketRef.current = socket;
 
     socket.on("connect", () => {
       setStatus((previous) => ({ ...previous, socketConnected: true }));
@@ -211,6 +215,14 @@ export default function DashboardShell() {
 
     socket.on("disconnect", () => {
       setStatus((previous) => ({ ...previous, socketConnected: false }));
+    });
+
+    socket.on("kill_activated", () => {
+      setHalted(true);
+    });
+
+    socket.on("kill_resumed", () => {
+      setHalted(false);
     });
 
     socket.on("server_status", (payload: ServerStatusPayload) => {
@@ -717,12 +729,23 @@ export default function DashboardShell() {
       marketFeedConnected,
       latencyMs: status.latencyMs,
       lastUpdate: lastUpdate > 0 ? lastUpdate : null,
+      halted,
     };
-  }, [clock, status]);
+  }, [clock, status, halted]);
+
+  const handleKillSwitch = () => {
+    socketRef.current?.emit("kill_switch");
+    setHalted(true);
+  };
+
+  const handleResume = () => {
+    socketRef.current?.emit("kill_resume");
+    setHalted(false);
+  };
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">
-      <Header status={systemStatus} />
+      <Header status={systemStatus} onKillSwitch={handleKillSwitch} onResume={handleResume} />
 
       <div className="flex-1 p-6 grid grid-cols-12 gap-6 max-w-[1920px] mx-auto w-full">
         <div className="col-span-12">
@@ -744,13 +767,25 @@ export default function DashboardShell() {
 
         <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
           <div className="glass-card flex-1 p-0 flex flex-col max-h-[600px] overflow-hidden">
-            <div className="p-4 border-b border-white/5 bg-white/5 backdrop-blur-sm">
+            <div className="p-4 border-b border-white/5 bg-white/5 backdrop-blur-sm flex items-center justify-between">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 Signal Feed
               </h2>
+              <button
+                type="button"
+                onClick={() => setHideHolds((v) => !v)}
+                className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+                  hideHolds
+                    ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/20 hover:bg-yellow-500/20"
+                    : "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10"
+                }`}
+                title="Toggle visibility of HOLD signals in the feed"
+              >
+                {hideHolds ? "HOLD hidden" : "HOLD visible"}
+              </button>
             </div>
-            <SignalFeed signals={filteredSignals.slice(0, 120)} />
+            <SignalFeed signals={filteredSignals.filter((s) => !hideHolds || s.signal !== "HOLD").slice(0, 120)} />
           </div>
 
           <div className="glass-card flex-1 p-4 min-h-[300px]">

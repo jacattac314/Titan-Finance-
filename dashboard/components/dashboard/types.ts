@@ -92,4 +92,5 @@ export interface SystemStatus {
   marketFeedConnected: boolean;
   lastUpdate: number | null;
   latencyMs: number | null;
+  halted: boolean;
 }

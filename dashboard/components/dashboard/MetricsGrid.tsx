@@ -22,7 +22,9 @@ export default function MetricsGrid({ rows }: MetricsGridProps) {
         const avgWinRate = models.length
             ? models.reduce((sum, model) => sum + safeNumber(model.win_rate), 0) / models.length
             : 0;
-        const bestModel = models.length ? models[0] : null;
+        const bestModel = models.length
+            ? models.reduce((best, m) => safeNumber(m.pnl_pct) > safeNumber(best.pnl_pct) ? m : best)
+            : null;
         const bestModelPnlPct = safeNumber(bestModel?.pnl_pct);
 
         return [
