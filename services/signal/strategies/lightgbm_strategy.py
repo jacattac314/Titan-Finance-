@@ -123,7 +123,7 @@ class LightGBMStrategy(Strategy):
             forecast_price = round(price + direction * atr * conf * 2.0, 2)
 
             current_ts = tick.get("timestamp", 0)
-            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            forecast_timestamp = int(current_ts) + (60 * 1000)  # +1 hour in ms
 
             return {
                 "model_id": self.model_id,
@@ -201,7 +201,7 @@ class LightGBMStrategy(Strategy):
             forecast_price = round(close + direction * atr * conf * 2.0, 2)
 
             current_ts = bar.get("timestamp", 0)
-            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)
+            forecast_timestamp = int(current_ts) + (60 * 1000)
 
             return {
                 "model_id": self.model_id,

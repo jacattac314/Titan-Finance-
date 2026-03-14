@@ -65,7 +65,7 @@ class SMACrossover(Strategy):
                 forecast_price = price
             
             current_ts = tick.get("timestamp", 0)
-            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            forecast_timestamp = int(current_ts) + (60 * 1000)  # +1 min in ms
             
             # Confidence reflects the relative MA spread scaled to [0, 1].
             # A wider spread indicates a stronger crossover; 5% diff → 1.0.

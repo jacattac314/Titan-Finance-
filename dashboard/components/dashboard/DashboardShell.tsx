@@ -528,7 +528,7 @@ export default function DashboardShell() {
           forecastPrice: signal !== 'HOLD'
             ? Math.round((price + (signal === 'BUY' ? 1 : -1) * price * (0.002 + Math.random() * 0.008)) * 100) / 100
             : undefined,
-          forecastTimestamp: signal !== 'HOLD' ? timestamp + 60 * 60 * 1000 : undefined,
+          forecastTimestamp: signal !== 'HOLD' ? timestamp + 60 * 1000 : undefined,
         };
         setSignals((previous) => [nextSignal, ...previous].slice(0, 400));
 

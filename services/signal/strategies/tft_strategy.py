@@ -102,7 +102,7 @@ class TFTStrategy(Strategy):
         
         # Un-scale the final prediction to get an actual price forecast
         forecast_price = float(final_prediction_scaled * std[close_idx] + mean[close_idx])
-        forecast_timestamp = int(tick.get("timestamp", 0)) + (60 * 60 * 1000)  # +1 hour in ms
+        forecast_timestamp = int(tick.get("timestamp", 0)) + (60 * 1000)  # +1 min in ms
         
         # Simple Logic: If model predicts values > current scaled close + threshold
         signal = None
