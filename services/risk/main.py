@@ -93,6 +93,8 @@ async def main():
     config = _load_and_validate_config()
 
     engine = RiskEngine(config)
+    starting_cash = float(os.getenv("PAPER_STARTING_CASH", "100000"))
+    engine.update_account_state(equity=starting_cash, daily_pnl=0.0)
     logger.info(
         f"RiskEngine ready | max_drawdown={config['MAX_DAILY_LOSS_PCT']:.1%} "
         f"| max_consec_losses={config['MAX_CONSECUTIVE_LOSSES']} "

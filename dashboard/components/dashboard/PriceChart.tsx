@@ -49,7 +49,7 @@ function ForecastEndpointDot(props: {
   cx?: number;
   cy?: number;
   payload?: { timestamp: number; [key: string]: unknown };
-  dataKey?: string;
+  dataKey?: string | number | ((obj: unknown) => unknown);
   color: string;
   forecastPrice: number;
   signal: "BUY" | "SELL";
