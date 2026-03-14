@@ -25,6 +25,7 @@ const FORECAST_COLORS: Record<string, string> = {
   "RandomForestPulse_v1": "#4ade80",
   "LogisticRegime_v1": "#f9a8d4",
   "LSTM_Attention_v1": "#c084fc",
+  "Ensemble": "#facc15",
 };
 
 function getForecastColor(modelName: string): string {

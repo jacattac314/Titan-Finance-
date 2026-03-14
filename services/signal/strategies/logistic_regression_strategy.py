@@ -28,6 +28,7 @@ class LogisticRegressionStrategy(Strategy):
         self.model = LogisticRegression(max_iter=400, class_weight="balanced")
         self.scaler = StandardScaler()
         self.model_ready = False
+        self._feature_cols: list[str] = []
 
     def _fit_model(self) -> None:
         df = pd.DataFrame(list(self.bars))
@@ -41,23 +42,19 @@ class LogisticRegressionStrategy(Strategy):
         if feats["target"].nunique() < 2:
             return
 
-        feature_cols = [
-            "RSI",
-            "MACD",
-            "MACD_line",
-            "MACD_signal",
-            "log_ret",
-            "ATR",
-            "BBU",
-            "BBL",
-            "BBM",
+        _COLS = [
+            "RSI", "MACD", "MACD_line", "MACD_signal", "log_ret", "ATR",
+            "BBU", "BBL", "BBM", "BB_Width", "BB_Pos",
+            "Stoch_K", "Stoch_D", "Williams_R", "ROC", "OBV", "Volume_Ratio",
         ]
+        feature_cols = [c for c in _COLS if c in feats.columns]
         X = feats[feature_cols].to_numpy()
         y = feats["target"].to_numpy()
 
         X_scaled = self.scaler.fit_transform(X)
         self.model.fit(X_scaled, y)
         self.model_ready = True
+        self._feature_cols = feature_cols
 
     async def on_tick(self, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         price = float(tick.get("price", 0.0))
@@ -81,7 +78,7 @@ class LogisticRegressionStrategy(Strategy):
             return None
 
         last = features_df.iloc[[-1]]
-        feature_cols = ["RSI", "MACD", "MACD_line", "MACD_signal", "log_ret", "ATR", "BBU", "BBL", "BBM"]
+        feature_cols = self._feature_cols
         X_last = self.scaler.transform(last[feature_cols].to_numpy())
         prob_up = float(self.model.predict_proba(X_last)[0][1])
 

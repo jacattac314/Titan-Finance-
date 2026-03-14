@@ -25,6 +25,7 @@ except ImportError:
 # Shared schemas and health server
 from schemas import MarketDataEvent, TradeSignalEvent, validate_and_log, SCHEMA_VERSION
 from health import run_health_server, set_ready
+from ensemble import EnsembleAggregator
 
 load_dotenv()
 
@@ -58,6 +59,8 @@ async def run_signal_engine(redis_client):
     pubsub = redis_client.pubsub()
     await pubsub.subscribe("market_data")
     logger.info(f"Loaded {len(strategies)} strategies. Listening for market data...")
+
+    ensemble = EnsembleAggregator(min_models=2, consensus_threshold=0.60)
 
     set_ready(True)
 
@@ -95,6 +98,25 @@ async def run_signal_engine(redis_client):
                             await redis_client.publish(
                                 "trade_signals", json.dumps(validated.to_dict())
                             )
+
+                            # Feed signal into ensemble; publish if consensus reached
+                            ensemble_signal = ensemble.add_signal(signal)
+                            if ensemble_signal:
+                                ensemble_signal.setdefault("schema_version", SCHEMA_VERSION)
+                                validated_ens = validate_and_log(
+                                    TradeSignalEvent, ensemble_signal,
+                                    context="signal:publish:trade_signals:ensemble"
+                                )
+                                if validated_ens:
+                                    logger.info(
+                                        "Ensemble signal: %s %s conf=%.2f",
+                                        ensemble_signal["signal"],
+                                        ensemble_signal["symbol"],
+                                        ensemble_signal["confidence"],
+                                    )
+                                    await redis_client.publish(
+                                        "trade_signals", json.dumps(validated_ens.to_dict())
+                                    )
 
         except Exception as e:
             logger.error(f"Error processing tick: {e}")
