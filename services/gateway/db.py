@@ -68,12 +68,19 @@ class DatabaseManager:
                 "type": "trade"
             })
             await self.redis.publish("market_data", message)
+            await self.redis.set(f"price:{symbol}", price)
         except Exception as e:
             logger.error(f"Failed to publish to Redis: {e}")
 
-    async def get_latest_price(self, symbol: str):
-        """Fetch latest price from QuestDB (via PG Wire or REST, not implemented in v1 MVP usually just use cache)."""
-        # In a real HFT system, we'd query the latest state or keep an in-memory cache.
-        pass
+    async def get_latest_price(self, symbol: str) -> float | None:
+        """Return the latest cached price for a symbol from Redis, or None if unavailable."""
+        if not self.redis:
+            return None
+        try:
+            value = await self.redis.get(f"price:{symbol}")
+            return float(value) if value is not None else None
+        except Exception as e:
+            logger.error(f"Failed to get latest price for {symbol} from Redis: {e}")
+            return None
 
 db = DatabaseManager()
