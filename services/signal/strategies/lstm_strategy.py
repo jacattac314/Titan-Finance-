@@ -132,4 +132,79 @@ class LSTMStrategy(Strategy):
         return None
 
     async def on_bar(self, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Process a real OHLCV bar, using proper high/low/open for richer features."""
+        close = float(bar.get("close", 0.0))
+        if close <= 0:
+            return None
+
+        self.data_buffer.append({
+            "open":   float(bar.get("open", close)),
+            "high":   float(bar.get("high", close)),
+            "low":    float(bar.get("low", close)),
+            "close":  close,
+            "volume": float(bar.get("volume", 1000)),
+        })
+
+        if len(self.data_buffer) < self.warmup_period:
+            return None
+
+        df = pd.DataFrame(list(self.data_buffer))
+        df = self.fe.calculate_features(df)
+        df.dropna(inplace=True)
+
+        if len(df) < self.lookback:
+            return None
+
+        missing = [c for c in _REQUIRED_FEATURES if c not in df.columns]
+        if missing:
+            logger.error(
+                "LSTM bar feature validation failed for %s: missing columns %s",
+                self.symbol, missing,
+            )
+            return None
+
+        recent_data = df[_REQUIRED_FEATURES].iloc[-self.lookback:].values
+        mean = np.mean(recent_data, axis=0)
+        std = np.std(recent_data, axis=0) + 1e-8
+        scaled_data = (recent_data - mean) / std
+
+        tensor_in = torch.FloatTensor(scaled_data).unsqueeze(0).to(self.device)
+
+        try:
+            with torch.no_grad():
+                prediction = self.model(tensor_in).item()
+        except RuntimeError as exc:
+            logger.error(
+                "LSTM bar inference failed for %s: %s. Input shape: %s",
+                self.symbol, exc, tensor_in.shape,
+            )
+            return None
+
+        logger.debug("LSTM bar prediction: %.4f", prediction)
+
+        signal = None
+        confidence = prediction
+
+        if prediction > 0.7:
+            signal = "BUY"
+        elif prediction < 0.3:
+            signal = "SELL"
+            confidence = 1.0 - prediction
+
+        if signal:
+            atr_col = df["ATR"].iloc[-1] if "ATR" in df.columns else close * 0.005
+            direction = 1 if signal == "BUY" else -1
+            return {
+                "model_id": self.model_id,
+                "model_name": "LSTM_Attention_v1",
+                "symbol": self.symbol,
+                "signal": signal,
+                "confidence": round(confidence, 2),
+                "price": close,
+                "timestamp": bar.get("timestamp"),
+                "forecast_price": round(close + direction * float(atr_col) * confidence * 2.0, 2),
+                "forecast_timestamp": int(bar.get("timestamp", 0)) + 60 * 1000,
+                "explanation": [f"LSTM_Prob: {prediction:.2f}"],
+            }
+
         return None

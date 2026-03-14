@@ -113,4 +113,63 @@ class RandomForestStrategy(Strategy):
         }
 
     async def on_bar(self, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        return None
+        close = float(bar.get("close", 0.0))
+        if close <= 0:
+            return None
+
+        self.bars.append({
+            "open": float(bar.get("open", close)),
+            "high": float(bar.get("high", close)),
+            "low": float(bar.get("low", close)),
+            "close": close,
+            "volume": float(bar.get("volume", 0)),
+        })
+
+        if len(self.bars) < self.min_bars:
+            return None
+
+        self._ticks_since_train += 1
+        if not self.model_ready or self._ticks_since_train >= self.retrain_every:
+            self._fit_model()
+            self._ticks_since_train = 0
+
+        if not self.model_ready:
+            return None
+
+        features_df = self.fe.calculate_features(pd.DataFrame(list(self.bars)))
+        if features_df.empty:
+            return None
+
+        last = features_df.iloc[[-1]]
+        feature_cols = self._feature_cols
+        prob_up = float(self.model.predict_proba(last[feature_cols].to_numpy())[0][1])
+
+        if prob_up > self.confidence_threshold:
+            signal = "BUY"
+            confidence = prob_up
+        elif prob_up < (1 - self.confidence_threshold):
+            signal = "SELL"
+            confidence = 1 - prob_up
+        else:
+            return None
+
+        fi = self.model.feature_importances_
+        names = np.array(self._feature_cols)
+        top_idx = np.argsort(fi)[-3:][::-1]
+        explanation = [f"{names[i]} importance: {fi[i]:.2f}" for i in top_idx]
+
+        atr = float(last["ATR"].iloc[0]) if "ATR" in last.columns else close * 0.005
+        direction = 1 if signal == "BUY" else -1
+
+        return {
+            "model_id": self.model_id,
+            "model_name": "RandomForestPulse_v1",
+            "symbol": self.symbol,
+            "signal": signal,
+            "confidence": round(confidence, 2),
+            "price": close,
+            "timestamp": bar.get("timestamp"),
+            "forecast_price": round(close + direction * atr * confidence * 1.8, 2),
+            "forecast_timestamp": int(bar.get("timestamp", 0)) + 60 * 1000,
+            "explanation": explanation,
+        }

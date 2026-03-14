@@ -25,6 +25,8 @@ class TFTStrategy(Strategy):
         # Warmup
         self.warmup_period = 200
         self.prices: Deque[float] = deque(maxlen=self.warmup_period)
+        # OHLCV bar buffer used by on_bar (real bars, not synthetic tick data)
+        self.bar_buffer: Deque[Dict] = deque(maxlen=self.warmup_period)
         
         # Feature Engineering
         self.fe = FeatureEngineer()
@@ -133,4 +135,80 @@ class TFTStrategy(Strategy):
         return None
 
     async def on_bar(self, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Process a real OHLCV bar with proper high/low/open for richer ATR and stochastic features."""
+        close = float(bar.get("close", 0.0))
+        if close <= 0:
+            return None
+
+        self.bar_buffer.append({
+            "open":   float(bar.get("open", close)),
+            "high":   float(bar.get("high", close)),
+            "low":    float(bar.get("low", close)),
+            "close":  close,
+            "volume": float(bar.get("volume", 1000)),
+        })
+
+        if len(self.bar_buffer) < self.warmup_period:
+            return None
+
+        df = pd.DataFrame(list(self.bar_buffer))
+        df = self.fe.calculate_features(df)
+        df.dropna(inplace=True)
+
+        if len(df) < self.lookback:
+            return None
+
+        cols = [
+            'open', 'high', 'low', 'close', 'volume',
+            'RSI', 'MACD', 'MACD_line', 'MACD_signal',
+            'log_ret', 'ATR', 'BBU', 'BBL', 'BBM',
+        ]
+        available_cols = [c for c in cols if c in df.columns]
+        recent_data = df[available_cols].iloc[-self.lookback:].values  # [60, 14]
+
+        mean = np.mean(recent_data, axis=0)
+        std = np.std(recent_data, axis=0) + 1e-8
+        scaled_data = (recent_data - mean) / std
+
+        tensor_in = torch.FloatTensor(scaled_data).unsqueeze(0).to(self.device)
+
+        try:
+            with torch.no_grad():
+                predictions = self.model(tensor_in).squeeze(0).cpu().numpy()  # [output_horizon]
+        except RuntimeError as exc:
+            logger.error("TFT bar inference failed for %s: %s", self.symbol, exc)
+            return None
+
+        close_idx = available_cols.index('close')
+        current_scaled_close = scaled_data[-1, close_idx]
+        final_prediction_scaled = predictions[-1]
+        avg_prediction = float(np.mean(predictions))
+
+        forecast_price = float(final_prediction_scaled * std[close_idx] + mean[close_idx])
+        forecast_timestamp = int(bar.get("timestamp", 0)) + 60 * 1000
+
+        signal = None
+        confidence = 0.5
+
+        if avg_prediction > current_scaled_close + 0.1:
+            signal = "BUY"
+            confidence = min(0.5 + (avg_prediction - current_scaled_close), 0.99)
+        elif avg_prediction < current_scaled_close - 0.1:
+            signal = "SELL"
+            confidence = min(0.5 + (current_scaled_close - avg_prediction), 0.99)
+
+        if signal:
+            return {
+                "model_id": self.model_id,
+                "model_name": "TFT_Transformer_v1",
+                "symbol": self.symbol,
+                "signal": signal,
+                "confidence": round(confidence, 2),
+                "price": close,
+                "timestamp": bar.get("timestamp"),
+                "explanation": [f"Forecast_1H_Z: {final_prediction_scaled:.2f}"],
+                "forecast_price": round(forecast_price, 2),
+                "forecast_timestamp": forecast_timestamp,
+            }
+
         return None
