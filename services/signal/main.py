@@ -6,13 +6,8 @@ import sys
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-# Strategies
-from strategies.sma_crossover import SMACrossover
-from strategies.lightgbm_strategy import LightGBMStrategy
-from strategies.lstm_strategy import LSTMStrategy
-from strategies.tft_strategy import TFTStrategy
-from strategies.logistic_regression_strategy import LogisticRegressionStrategy
-from strategies.random_forest_strategy import RandomForestStrategy
+# Contender registry (loads strategies from contenders.yaml / CONTENDERS_CONFIG)
+from contender_registry import load_contenders
 
 # Shared schemas and health server
 from schemas import MarketDataEvent, TradeSignalEvent, validate_and_log, SCHEMA_VERSION
@@ -29,17 +24,9 @@ logger = logging.getLogger("TitanSignalService")
 
 async def run_signal_engine(redis_client):
     logger.info("Initializing Signal Engine...")
-    
-    # 1. Initialize Strategies
-    # In a real app, load from DB/Config
-    strategies = [
-        SMACrossover({"symbol": "SPY", "fast_period": 10, "slow_period": 30, "model_id": "sma_spy"}),
-        LightGBMStrategy({"symbol": "SPY", "model_id": "lgb_spy_v1", "confidence_threshold": 0.6}),
-        LSTMStrategy({"symbol": "SPY", "model_id": "lstm_spy_v1", "lookback": 60}),
-        TFTStrategy({"symbol": "SPY", "model_id": "tft_spy_v1", "lookback": 60}),
-        LogisticRegressionStrategy({"symbol": "SPY", "model_id": "logreg_spy_v1", "confidence_threshold": 0.58}),
-        RandomForestStrategy({"symbol": "SPY", "model_id": "rf_spy_v1", "confidence_threshold": 0.62})
-    ]
+
+    # 1. Load strategies from contenders.yaml (or CONTENDERS_CONFIG env var)
+    strategies = load_contenders()
     
     # 2. Subscribe to Market Data
     pubsub = redis_client.pubsub()
