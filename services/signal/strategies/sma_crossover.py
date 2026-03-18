@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional, Deque
 from collections import deque
+import datetime
 import statistics
 import logging
 from .base import Strategy
@@ -65,7 +66,18 @@ class SMACrossover(Strategy):
                 forecast_price = price
             
             current_ts = tick.get("timestamp", 0)
-            forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
+            # Compute forecast timestamp (+1 hour). Supports both int (epoch-ms)
+            # and ISO 8601 string timestamps so tests and live data both work.
+            if isinstance(current_ts, str):
+                try:
+                    # Replace Z with +00:00 for Python < 3.11 compat; other
+                    # UTC offset formats (e.g. +05:30) are handled natively.
+                    dt = datetime.datetime.fromisoformat(current_ts.replace("Z", "+00:00"))
+                    forecast_timestamp = int(dt.timestamp() * 1000) + (60 * 60 * 1000)
+                except (ValueError, TypeError):
+                    forecast_timestamp = None
+            else:
+                forecast_timestamp = int(current_ts) + (60 * 60 * 1000)  # +1 hour in ms
             
             # Confidence reflects the relative MA spread scaled to [0, 1].
             # A wider spread indicates a stronger crossover; 5% diff → 1.0.

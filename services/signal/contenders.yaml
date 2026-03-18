@@ -1,0 +1,50 @@
+# TitanFlow Contender Configuration
+#
+# Each entry describes a strategy contender that runs inside the signal service.
+# Modify this file to add, remove, or tune strategies without changing code.
+#
+# Required fields per contender:
+#   class    - Python class name (must be importable from the strategies package)
+#   symbol   - Ticker to subscribe to (must match a market_data feed)
+#   model_id - Unique identifier used in signals, fills, and leaderboard
+#   enabled  - Set to false to disable a contender without removing the entry
+#
+# All other fields are forwarded as-is to the strategy constructor config dict.
+
+contenders:
+  - class: SMACrossover
+    symbol: SPY
+    model_id: sma_spy
+    enabled: true
+    fast_period: 10
+    slow_period: 30
+
+  - class: LightGBMStrategy
+    symbol: SPY
+    model_id: lgb_spy_v1
+    enabled: true
+    confidence_threshold: 0.60
+
+  - class: LSTMStrategy
+    symbol: SPY
+    model_id: lstm_spy_v1
+    enabled: true
+    lookback: 60
+
+  - class: TFTStrategy
+    symbol: SPY
+    model_id: tft_spy_v1
+    enabled: true
+    lookback: 60
+
+  - class: LogisticRegressionStrategy
+    symbol: SPY
+    model_id: logreg_spy_v1
+    enabled: true
+    confidence_threshold: 0.58
+
+  - class: RandomForestStrategy
+    symbol: SPY
+    model_id: rf_spy_v1
+    enabled: true
+    confidence_threshold: 0.62
